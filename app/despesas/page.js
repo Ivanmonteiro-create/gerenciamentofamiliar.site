@@ -55,7 +55,6 @@ export default function DespesasReceitas() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; // YYYY-MM
   });
-  const [busca, setBusca] = useState("");
 
   // carregar do localStorage
   useEffect(() => {
@@ -108,14 +107,9 @@ export default function DespesasReceitas() {
       const okTipo = fTipo === "todas" ? true : t.tipo === fTipo;
       const okCat = fCategoria === "todas" ? true : t.categoria === fCategoria;
       const okMes = fMes === "tudo" ? true : t.data.startsWith(fMes); // compara YYYY-MM
-      const okBusca =
-        !busca
-          ? true
-          : t.descricao.toLowerCase().includes(busca.toLowerCase()) ||
-            t.categoria.toLowerCase().includes(busca.toLowerCase());
-      return okTipo && okCat && okMes && okBusca;
+      return okTipo && okCat && okMes;
     });
-  }, [txs, fTipo, fCategoria, fMes, busca]);
+  }, [txs, fTipo, fCategoria, fMes]);
 
   // totais
   const totalEntrada = useMemo(
@@ -211,10 +205,11 @@ export default function DespesasReceitas() {
 
       {/* —— Filtros + Totais —— */}
       <div className="card" style={{ marginBottom: 14 }}>
+        {/* linha 1: filtros */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
             gap: 10,
           }}
         >
@@ -256,32 +251,22 @@ export default function DespesasReceitas() {
               </label>
             </div>
           </div>
+        </div>
 
-          <div>
-            <label className="lbl">Busca</label>
-            <input
-              className="inp"
-              placeholder="Descrição ou categoria…"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-            />
+        {/* linha 2: totais */}
+        <div className="stats" style={{ marginTop: 12 }}>
+          <div className="stat">
+            <small className="muted">Entradas</small>
+            <div className="stat-value">{currency(totalEntrada)}</div>
           </div>
-
-          {/* Totais — cards alinhados */}
-          <div className="stats">
-            <div className="stat">
-              <small className="muted">Entradas</small>
-              <div className="stat-value">{currency(totalEntrada)}</div>
-            </div>
-            <div className="stat">
-              <small className="muted">Saídas</small>
-              <div className="stat-value saida">{currency(totalSaida)}</div>
-            </div>
-            <div className="stat">
-              <small className="muted">Saldo</small>
-              <div className={`stat-value ${saldo >= 0 ? "positivo" : "negativo"}`}>
-                {currency(saldo)}
-              </div>
+          <div className="stat">
+            <small className="muted">Saídas</small>
+            <div className="stat-value saida">{currency(totalSaida)}</div>
+          </div>
+          <div className="stat">
+            <small className="muted">Saldo</small>
+            <div className={`stat-value ${saldo >= 0 ? "positivo" : "negativo"}`}>
+              {currency(saldo)}
             </div>
           </div>
         </div>
@@ -328,7 +313,7 @@ export default function DespesasReceitas() {
         </div>
       </div>
 
-      {/* estilos locais para inputs/tabela e totais */}
+      {/* estilos locais */}
       <style jsx>{`
         .lbl { display:block; font-size:12px; color:#6b7280; margin-bottom:6px; }
         .inp { width:100%; padding:10px 11px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; }
