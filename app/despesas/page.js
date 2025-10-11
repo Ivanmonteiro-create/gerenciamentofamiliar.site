@@ -25,7 +25,7 @@ function currency(n) {
   try {
     return new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR" }).format(n);
   } catch {
-    return n.toFixed(2);
+    return Number(n ?? 0).toFixed(2);
   }
 }
 
@@ -107,10 +107,7 @@ export default function DespesasReceitas() {
     return txs.filter((t) => {
       const okTipo = fTipo === "todas" ? true : t.tipo === fTipo;
       const okCat = fCategoria === "todas" ? true : t.categoria === fCategoria;
-      const okMes =
-        fMes === "tudo"
-          ? true
-          : t.data.startsWith(fMes); // compara YYYY-MM
+      const okMes = fMes === "tudo" ? true : t.data.startsWith(fMes); // compara YYYY-MM
       const okBusca =
         !busca
           ? true
@@ -270,22 +267,25 @@ export default function DespesasReceitas() {
             />
           </div>
 
-         <div className="stats">
-  <div className="stat">
-    <small className="muted">Entradas</small>
-    <div className="stat-value">{currency(totalEntrada)}</div>
-  </div>
-  <div className="stat">
-    <small className="muted">Saídas</small>
-    <div className="stat-value saida">{currency(totalSaida)}</div>
-  </div>
-  <div className="stat">
-    <small className="muted">Saldo</small>
-    <div className={`stat-value ${saldo >= 0 ? "positivo" : "negativo"}`}>
-      {currency(saldo)}
-    </div>
-  </div>
-</div>
+          {/* Totais — cards alinhados */}
+          <div className="stats">
+            <div className="stat">
+              <small className="muted">Entradas</small>
+              <div className="stat-value">{currency(totalEntrada)}</div>
+            </div>
+            <div className="stat">
+              <small className="muted">Saídas</small>
+              <div className="stat-value saida">{currency(totalSaida)}</div>
+            </div>
+            <div className="stat">
+              <small className="muted">Saldo</small>
+              <div className={`stat-value ${saldo >= 0 ? "positivo" : "negativo"}`}>
+                {currency(saldo)}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* —— Tabela —— */}
       <div className="card">
@@ -328,7 +328,7 @@ export default function DespesasReceitas() {
         </div>
       </div>
 
-      {/* estilos locais para inputs/tabela */}
+      {/* estilos locais para inputs/tabela e totais */}
       <style jsx>{`
         .lbl { display:block; font-size:12px; color:#6b7280; margin-bottom:6px; }
         .inp { width:100%; padding:10px 11px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; }
@@ -339,8 +339,24 @@ export default function DespesasReceitas() {
         .btn-sm.danger { border-color:#fecaca; color:#b91c1c; }
         .th, .td { padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:left; }
         .tr:nth-child(even) { background:#fafafa; }
-        .totbox { display:flex; gap:18px; align-items:flex-end; }
-        .totbox > div { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:10px 12px; }
+
+        /* Totais: grid responsivo, 3 cartões dentro do card */
+        .stats {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 10px;
+          align-items: stretch;
+        }
+        @media (max-width: 900px) { .stats { grid-template-columns: 1fr; } }
+        .stat {
+          background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px;
+        }
+        .stat-value {
+          font-weight:700; font-size:18px; margin-top:4px; text-align:right;
+        }
+        .stat-value.saida { color:#b91c1c; }
+        .stat-value.positivo { color:#065f46; }
+        .stat-value.negativo { color:#b91c1c; }
       `}</style>
     </>
   );
