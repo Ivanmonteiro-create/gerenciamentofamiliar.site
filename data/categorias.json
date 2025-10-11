@@ -1,0 +1,55 @@
+{
+  "entradas": [
+    "Salário",
+    "Freelancer",
+    "Vendas",
+    "Rendimentos de Investimentos",
+    "Reembolsos",
+    "Outros"
+  ],
+  "saidas_fixas": [
+    "Aluguel / Condomínio",
+    "Energia (Luz)",
+    "Água",
+    "Internet",
+    "Telefone / Celular",
+    "Transporte (Combustível / Passe)",
+    "Mercado",
+    "Educação",
+    "Saúde",
+    "Seguros",
+    "Assinaturas",
+    "Impostos / Taxas"
+  ],
+  "saidas_variaveis": [
+    "Lazer / Restaurantes",
+    "Roupas",
+    "Presentes / Doações",
+    "Manutenção (Casa / Carro)",
+    "Compras diversas"
+  ],
+  "cartoes_credito": [
+    "Fatura do Cartão (Cartão X)",
+    "Parcelas de Compras (Cartão X)"
+  ],
+  "dividas_emprestimos": [
+    "Empréstimo Pessoal (Banco X)",
+    "Financiamento (Carro / Imóvel)",
+    "Renegociação",
+    "Pagamento Extra (Amortização)"
+  ],
+  "investimentos": [
+    "Cripto",
+    "Ações",
+    "Fundos / ETFs",
+    "Renda Fixa / CDB",
+    "Poupança",
+    "Imóveis / Terrenos"
+  ],
+  "contas_patrimonio": [
+    "Conta Corrente (Banco X)",
+    "Carteira",
+    "Poupança (Banco Y)",
+    "Veículo (Carro Z)"
+  ]
+}
