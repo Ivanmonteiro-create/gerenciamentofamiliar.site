@@ -270,13 +270,22 @@ export default function DespesasReceitas() {
             />
           </div>
 
-          <div className="totbox">
-            <div><small className="muted">Entradas</small><div><b>{currency(totalEntrada)}</b></div></div>
-            <div><small className="muted">Saídas</small><div><b style={{color:"#b91c1c"}}>{currency(totalSaida)}</b></div></div>
-            <div><small className="muted">Saldo</small><div><b style={{color: saldo>=0 ? "#065f46" : "#b91c1c"}}>{currency(saldo)}</b></div></div>
-          </div>
-        </div>
-      </div>
+         <div className="stats">
+  <div className="stat">
+    <small className="muted">Entradas</small>
+    <div className="stat-value">{currency(totalEntrada)}</div>
+  </div>
+  <div className="stat">
+    <small className="muted">Saídas</small>
+    <div className="stat-value saida">{currency(totalSaida)}</div>
+  </div>
+  <div className="stat">
+    <small className="muted">Saldo</small>
+    <div className={`stat-value ${saldo >= 0 ? "positivo" : "negativo"}`}>
+      {currency(saldo)}
+    </div>
+  </div>
+</div>
 
       {/* —— Tabela —— */}
       <div className="card">
