@@ -7,7 +7,7 @@ const THEME_KEY = "gf_theme"; // "neutral" | "dark"
 export default function ThemeToggle() {
   const [theme, setTheme] = useState("neutral");
 
-  // carrega preferência e aplica no body
+  // Carrega preferência e aplica classe no <body>
   useEffect(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem(THEME_KEY) : null;
     const initial = saved === "dark" ? "dark" : "neutral";
@@ -32,8 +32,9 @@ export default function ThemeToggle() {
       style={{
         padding: "8px 10px",
         borderRadius: 10,
-        border: "1px solid #e5e7eb",
-        background: "#fff",
+        border: "1px solid var(--bd, #e5e7eb)",
+        background: "var(--btn, #fff)",
+        color: "var(--btnText, #111827)",
         fontWeight: 700,
         cursor: "pointer",
         boxShadow: "0 1px 2px rgba(0,0,0,.05)",
