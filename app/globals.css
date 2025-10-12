@@ -178,3 +178,15 @@ a:hover { text-decoration: underline; }
 .theme-dark-soft *::-webkit-scrollbar-track { background: #121418; }
 .theme-dark-soft *::-webkit-scrollbar-thumb { background: #2a2f36; border-radius: 8px; }
 .theme-dark-soft *::-webkit-scrollbar-thumb:hover { background: #353b44; }
+/* --- Mínimo Dark Seguro (apenas cores) --- */
+body { background:#121416; color:#f2f2f2; }
+
+.card, .panel { background:#1d1f23; border:1px solid #2a2e34; }
+thead th { background:#181a1e; color:#f2f2f2; }
+
+input[type="text"], input[type="date"], input[type="number"], input[type="month"], select, textarea {
+  background:#16181c; color:#f2f2f2; border:1px solid #2a2e34;
+}
+
+.small, .muted, label { color:#a5a5a5; }
+svg text { fill:#f2f2f2; }
