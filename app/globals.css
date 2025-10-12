@@ -18,3 +18,21 @@ body { margin: 0; font-family: system-ui, Arial, sans-serif; color: #111; backgr
   .menu { flex-direction:row; gap:6px; }
   .menu a { white-space:nowrap; }
 }
+/* ---- Fundo Neutro Suave ---- */
+body {
+  background: linear-gradient(180deg, #f0f1f3 0%, #e7e8eb 100%);
+}
+
+.card, .panel {
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-radius: 10px;
+}
+
+input, select, textarea {
+  background: #f9f9f9;
+}
+
+thead th {
+  background: #f2f2f4;
+}
