@@ -51,12 +51,17 @@ export default function DespesasReceitas() {
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState(null);
 
+  // filtros
   const [fTipo, setFTipo] = useState("todas");
   const [fCategoria, setFCategoria] = useState("todas");
   const [fMes, setFMes] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
+
+  // ordenação
+  const [sortKey, setSortKey] = useState("data"); // data | descricao | categoria | tipo | valor | status
+  const [sortDir, setSortDir] = useState("desc"); // asc | desc
 
   useEffect(() => {
     const loaded = loadTransactions();
@@ -92,13 +97,8 @@ export default function DespesasReceitas() {
       status: form.status,
       criadoEm: new Date().toISOString(),
     };
-    setTxs((prev) => [novo, ...prev].sort((a, b) => (a.data < b.data ? 1 : -1)));
-    setForm((f) => ({
-      ...f,
-      descricao: "",
-      valor: "",
-      data: todayISO(),
-    }));
+    setTxs((prev) => [novo, ...prev]);
+    setForm((f) => ({ ...f, descricao: "", valor: "", data: todayISO() }));
   }
 
   function delTx(id) {
@@ -126,11 +126,7 @@ export default function DespesasReceitas() {
       alert("Preencha: descrição, data, categoria, tipo e um valor maior que 0.");
       return;
     }
-    setTxs((prev) =>
-      prev
-        .map((t) => (t.id === editId ? { ...editForm, valor: v } : t))
-        .sort((a, b) => (a.data < b.data ? 1 : -1))
-    );
+    setTxs((prev) => prev.map((t) => (t.id === editId ? { ...editForm, valor: v } : t)));
     setEditId(null);
     setEditForm(null);
   }
@@ -143,6 +139,7 @@ export default function DespesasReceitas() {
     );
   }
 
+  // filtros aplicados
   const txsFiltradas = useMemo(() => {
     return txs.filter((t) => {
       const okTipo = fTipo === "todas" ? true : t.tipo === fTipo;
@@ -152,6 +149,50 @@ export default function DespesasReceitas() {
     });
   }, [txs, fTipo, fCategoria, fMes]);
 
+  // ordenação aplicada
+  const txsOrdenadas = useMemo(() => {
+    const list = [...txsFiltradas];
+    list.sort((a, b) => {
+      let A, B;
+      switch (sortKey) {
+        case "data":
+          A = a.data; B = b.data;
+          break;
+        case "descricao":
+          A = a.descricao.toLowerCase(); B = b.descricao.toLowerCase();
+          break;
+        case "categoria":
+          A = a.categoria.toLowerCase(); B = b.categoria.toLowerCase();
+          break;
+        case "tipo":
+          A = a.tipo; B = b.tipo;
+          break;
+        case "valor":
+          A = a.valor; B = b.valor;
+          break;
+        case "status":
+          A = a.status; B = b.status;
+          break;
+        default:
+          A = a.data; B = b.data;
+      }
+      if (A < B) return sortDir === "asc" ? -1 : 1;
+      if (A > B) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+    return list;
+  }, [txsFiltradas, sortKey, sortDir]);
+
+  function toggleSort(key) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir(key === "data" ? "desc" : "asc"); // por padrão: datas desc, texto asc
+    }
+  }
+
+  // totais — previsto (todos) x real (somente pagos)
   const totalEntradaPrev = useMemo(
     () => txsFiltradas.filter(t => t.tipo === "entrada").reduce((s, t) => s + t.valor, 0),
     [txsFiltradas]
@@ -171,6 +212,31 @@ export default function DespesasReceitas() {
     [txsFiltradas]
   );
   const saldoReal = totalEntradaReal - totalSaidaReal;
+
+  // exportar CSV (com base no filtro + ordenação atuais)
+  function exportCSV() {
+    const header = ["Data", "Descrição", "Categoria", "Tipo", "Valor", "Status"];
+    const rows = txsOrdenadas.map((t) => [
+      t.data,
+      t.descricao.replace(/"/g, '""'),
+      t.categoria.replace(/"/g, '""'),
+      t.tipo,
+      String(t.valor).replace(".", ","),
+      t.status,
+    ]);
+    const csv = [header, ...rows]
+      .map((r) => r.map((c) => `"${c}"`).join(";"))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+    a.download = `despesas_receitas_${stamp}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <>
@@ -358,50 +424,138 @@ export default function DespesasReceitas() {
 
       {/* —— Tabela —— */}
       <div className="card">
+        {/* ações da tabela */}
+        <div className="table-actions">
+          <button className="btn-sm" onClick={exportCSV}>Exportar CSV (Filtro)</button>
+        </div>
+
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ background: "#f3f4f6" }}>
-                <th className="th">Data</th>
-                <th className="th">Descrição</th>
-                <th className="th">Categoria</th>
-                <th className="th">Tipo</th>
-                <th className="th" style={{ textAlign: "right" }}>Valor</th>
-                <th className="th">Status</th>
+              <tr className="thead-row">
+                <th className="th sortable" onClick={() => toggleSort("data")}>
+                  Data {sortKey === "data" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className="th sortable" onClick={() => toggleSort("descricao")}>
+                  Descrição {sortKey === "descricao" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className="th sortable" onClick={() => toggleSort("categoria")}>
+                  Categoria {sortKey === "categoria" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className="th sortable" onClick={() => toggleSort("tipo")}>
+                  Tipo {sortKey === "tipo" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className="th sortable" style={{ textAlign: "right" }} onClick={() => toggleSort("valor")}>
+                  Valor {sortKey === "valor" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
+                <th className="th sortable" onClick={() => toggleSort("status")}>
+                  Status {sortKey === "status" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                </th>
                 <th className="th" style={{ textAlign: "center" }}>Ações</th>
               </tr>
             </thead>
             <tbody>
-              {txsFiltradas.length === 0 ? (
+              {txsOrdenadas.length === 0 ? (
                 <tr>
                   <td className="td" colSpan={7} style={{ textAlign: "center", color: "#6b7280" }}>
                     Nenhum lançamento encontrado.
                   </td>
                 </tr>
               ) : (
-                txsFiltradas.map((t) => (
-                  <tr key={t.id} className="tr">
-                    <td className="td">{new Date(t.data + "T00:00:00").toLocaleDateString("pt-PT")}</td>
-                    <td className="td">{t.descricao}</td>
-                    <td className="td">{t.categoria}</td>
-                    <td className="td">{t.tipo}</td>
-                    <td className="td" style={{ textAlign: "right", color: t.tipo === "entrada" ? "#065f46" : "#b91c1c" }}>
-                      {t.tipo === "saída" ? "-" : "+"}{currency(t.valor)}
-                    </td>
-                    <td className="td">
-                      <span className={`badge ${t.status === "pago" ? "ok" : "pend"}`}>
-                        {t.status === "pago" ? "Pago" : "Pendente"}
-                      </span>
-                    </td>
-                    <td className="td" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                      <button className="btn-sm" onClick={() => startEdit(t)}>Editar</button>{" "}
-                      <button className="btn-sm" onClick={() => toggleStatus(t.id)}>
-                        {t.status === "pago" ? "Marcar pendente" : "Marcar pago"}
-                      </button>{" "}
-                      <button className="btn-sm danger" onClick={() => delTx(t.id)}>Excluir</button>
-                    </td>
-                  </tr>
-                ))
+                txsOrdenadas.map((t) => {
+                  const isEditing = editId === t.id;
+                  if (isEditing) {
+                    return (
+                      <tr key={t.id} className="tr">
+                        <td className="td">
+                          <input
+                            className="inp"
+                            type="date"
+                            value={editForm.data}
+                            onChange={(e) => setEditForm({ ...editForm, data: e.target.value })}
+                            style={{ minWidth: 120 }}
+                          />
+                        </td>
+                        <td className="td">
+                          <input
+                            className="inp"
+                            value={editForm.descricao}
+                            onChange={(e) => setEditForm({ ...editForm, descricao: e.target.value })}
+                          />
+                        </td>
+                        <td className="td">
+                          <select
+                            className="inp"
+                            value={editForm.categoria}
+                            onChange={(e) => setEditForm({ ...editForm, categoria: e.target.value })}
+                          >
+                            {categoriasSelect.map((c) => (
+                              <option key={c} value={c}>{c}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="td">
+                          <select
+                            className="inp"
+                            value={editForm.tipo}
+                            onChange={(e) => setEditForm({ ...editForm, tipo: e.target.value })}
+                          >
+                            <option value="entrada">Entrada</option>
+                            <option value="saída">Saída</option>
+                          </select>
+                        </td>
+                        <td className="td" style={{ textAlign: "right" }}>
+                          <input
+                            className="inp"
+                            type="number"
+                            step="0.01"
+                            value={editForm.valor}
+                            onChange={(e) => setEditForm({ ...editForm, valor: e.target.value })}
+                            style={{ textAlign: "right", minWidth: 110 }}
+                          />
+                        </td>
+                        <td className="td">
+                          <select
+                            className="inp"
+                            value={editForm.status}
+                            onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                          >
+                            <option value="pago">Pago</option>
+                            <option value="pendente">Pendente</option>
+                          </select>
+                        </td>
+                        <td className="td" style={{ textAlign: "center" }}>
+                          <button className="btn-sm" onClick={saveEdit}>Salvar</button>{" "}
+                          <button className="btn-sm" onClick={cancelEdit}>Cancelar</button>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr key={t.id} className="tr">
+                      <td className="td">{new Date(t.data + "T00:00:00").toLocaleDateString("pt-PT")}</td>
+                      <td className="td">{t.descricao}</td>
+                      <td className="td">{t.categoria}</td>
+                      <td className="td">{t.tipo}</td>
+                      <td className="td" style={{ textAlign: "right", color: t.tipo === "entrada" ? "#065f46" : "#b91c1c" }}>
+                        {t.tipo === "saída" ? "-" : "+"}{currency(t.valor)}
+                      </td>
+                      <td className="td">
+                        <span className={`badge ${t.status === "pago" ? "ok" : "pend"}`}>
+                          {t.status === "pago" ? "Pago" : "Pendente"}
+                        </span>
+                      </td>
+                      <td className="td" style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                        <button className="btn-sm" onClick={() => startEdit(t)}>Editar</button>{" "}
+                        <button className="btn-sm" onClick={() => toggleStatus(t.id)}>
+                          {t.status === "pago" ? "Marcar pendente" : "Marcar pago"}
+                        </button>{" "}
+                        <button className="btn-sm danger" onClick={() => delTx(t.id)}>Excluir</button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -417,65 +571,32 @@ export default function DespesasReceitas() {
         .btn-sm{padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;}
         .btn-sm:hover{background:#f3f4f6;}
         .btn-sm.danger{border-color:#fecaca;color:#b91c1c;}
+        .table-actions{display:flex;justify-content:flex-end;padding:8px;}
+        .thead-row th{background:#f3f4f6;}
         .th,.td{padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:left;font-size:14px;}
+        .th.sortable{cursor:pointer;user-select:none;}
+        .th.sortable:hover{background:#eef2ff;}
+
         .tr:nth-child(even){background:#fafafa;}
         .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #e5e7eb;background:#fff;white-space:nowrap;}
         .badge.ok{color:#065f46;border-color:#bbf7d0;background:#ecfdf5;}
         .badge.pend{color:#92400e;border-color:#fde68a;background:#fffbeb;}
-       /* === Totais com cor e destaque leve === */
-.stats {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  align-items: stretch;
-}
-@media (max-width: 980px) {
-  .stats { grid-template-columns: 1fr; }
-}
 
-.stat {
-  background: #ffffff;
-  border-radius: 12px;
-  padding: 10px 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-  transition: 0.3s ease;
-}
-.stat:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
-}
+        /* Totais com cor e destaque leve */
+        .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;align-items:stretch;}
+        @media(max-width:980px){.stats{grid-template-columns:1fr;}}
+        .stat{background:#fff;border-radius:12px;padding:10px 12px;box-shadow:0 1px 3px rgba(0,0,0,.08);transition:.3s ease;border:2px solid transparent;}
+        .stat:hover{transform:translateY(-2px);box-shadow:0 2px 6px rgba(0,0,0,.12);}
+        .stat:nth-child(1){border-color:#16a34a33;} /* Entradas */
+        .stat:nth-child(2){border-color:#dc262633;} /* Saídas   */
+        .stat:nth-child(3){border-color:#2563eb33;} /* Saldos   */
 
-/* === Cores vivas por tipo === */
-.stat:nth-child(1) { border: 2px solid #16a34a33; } /* Entradas (verde leve) */
-.stat:nth-child(2) { border: 2px solid #dc262633; } /* Saídas (vermelho leve) */
-.stat:nth-child(3) { border: 2px solid #2563eb33; } /* Saldos (azul leve) */
-
-/* === Alinhamento texto + valor === */
-.row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  column-gap: 8px;
-  white-space: nowrap;
-  margin: 4px 0;
-}
-
-/* === Rótulos e valores === */
-.muted {
-  color: #374151;
-  font-size: 13px;
-  font-weight: 700; /* negrito nos títulos */
-  line-height: 1.1;
-}
-.val {
-  font-weight: 700;
-  font-size: 15px;
-  text-align: right;
-  line-height: 1.1;
-}
-.val.saida { color: #b91c1c; }
-.val.positivo { color: #15803d; }
-.val.negativo { color: #b91c1c; }
+        .row{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:8px;white-space:nowrap;margin:4px 0;}
+        .muted{color:#374151;font-size:13px;font-weight:700;line-height:1.1;}
+        .val{font-weight:700;font-size:15px;text-align:right;line-height:1.1;}
+        .val.saida{color:#b91c1c;}
+        .val.positivo{color:#15803d;}
+        .val.negativo{color:#b91c1c;}
       `}</style>
     </>
   );
