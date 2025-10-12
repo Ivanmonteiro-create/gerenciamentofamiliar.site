@@ -422,15 +422,60 @@ export default function DespesasReceitas() {
         .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #e5e7eb;background:#fff;white-space:nowrap;}
         .badge.ok{color:#065f46;border-color:#bbf7d0;background:#ecfdf5;}
         .badge.pend{color:#92400e;border-color:#fde68a;background:#fffbeb;}
-        .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:stretch;}
-        @media(max-width:980px){.stats{grid-template-columns:1fr;}}
-        .stat{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px;}
-        .row{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:8px;white-space:nowrap;}
-        .muted{color:#6b7280;font-size:13px;margin:0;line-height:1;}
-        .val{font-weight:700;font-size:15px;text-align:right;margin:0;line-height:1;display:inline-block;}
-        .val.saida{color:#b91c1c;}
-        .val.positivo{color:#065f46;}
-        .val.negativo{color:#b91c1c;}
+       /* === Totais com cor e destaque leve === */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+@media (max-width: 980px) {
+  .stats { grid-template-columns: 1fr; }
+}
+
+.stat {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 10px 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transition: 0.3s ease;
+}
+.stat:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+}
+
+/* === Cores vivas por tipo === */
+.stat:nth-child(1) { border: 2px solid #16a34a33; } /* Entradas (verde leve) */
+.stat:nth-child(2) { border: 2px solid #dc262633; } /* Saídas (vermelho leve) */
+.stat:nth-child(3) { border: 2px solid #2563eb33; } /* Saldos (azul leve) */
+
+/* === Alinhamento texto + valor === */
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  white-space: nowrap;
+  margin: 4px 0;
+}
+
+/* === Rótulos e valores === */
+.muted {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 700; /* negrito nos títulos */
+  line-height: 1.1;
+}
+.val {
+  font-weight: 700;
+  font-size: 15px;
+  text-align: right;
+  line-height: 1.1;
+}
+.val.saida { color: #b91c1c; }
+.val.positivo { color: #15803d; }
+.val.negativo { color: #b91c1c; }
       `}</style>
     </>
   );
