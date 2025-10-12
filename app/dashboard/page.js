@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import categorias from "../data/categorias.json";
 
 /** ====== helpers ====== **/
 const STORAGE_KEY = "gf_transactions_v2";
