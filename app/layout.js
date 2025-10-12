@@ -21,8 +21,8 @@ export default function RootLayout({ children }) {
           </aside>
           <main className="content">{children}</main>
         </div>
-      </body>
     <ThemeToggle />
+      </body>
     </html>
   );
 }
