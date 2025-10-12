@@ -111,3 +111,58 @@ body.theme-dark .small {
 
 /* Gráficos (SVG) */
 body.theme-dark svg text { fill: #e7e9ec; }
+/* ====== Toggle de Tema (fixo na lateral) ====== */
+.theme-toggle{
+  position: fixed;
+  left: 14px;            /* encaixa na faixa escura da esquerda */
+  top: 14px;
+  z-index: 60;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--gf-surface, #0b1220) 50%, transparent);
+  /* leve vidro, sem borda */
+  backdrop-filter: blur(8px);
+}
+
+.theme-toggle__btn{
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: oklch(0.92 0 0 / 0.85);     /* ícone claro por cima do fundo escuro */
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: transform .15s ease, background-color .15s ease, color .15s ease;
+  outline: none;
+}
+.theme-toggle__btn:hover{ transform: translateY(-1px); }
+.theme-toggle__btn.is-active{
+  background: oklch(0.22 0 0 / .9);  /* realce sutil */
+  color: white;
+}
+
+/* ====== Paleta leve/escura via data-theme no <html> ====== */
+html[data-theme="light"]{
+  --gf-bg: #f6f7fb;         /* o “neutro suave” que você curtiu */
+  --gf-surface: #ffffff;
+  --gf-text: #0f172a;
+}
+html[data-theme="dark"]{
+  --gf-bg: #0b1220;
+  --gf-surface: #111827;
+  --gf-text: #e5e7eb;
+}
+
+/* Aplica variáveis sem quebrar seu layout atual */
+body{ background: var(--gf-bg); color: var(--gf-text); }
+.card, .panel, .box{
+  background: var(--gf-surface);
+  color: var(--gf-text);
+}
+
+/* Se usar charts canvases, mantenha fundo transparente */
+canvas{ background: transparent; }
