@@ -1,5 +1,5 @@
 import "./globals.css";
-
+import ThemeToggle from "./components/ThemeToggle";
 export const metadata = { title: "Gerenciamento Financeiro" };
 
 export default function RootLayout({ children }) {
@@ -22,6 +22,7 @@ export default function RootLayout({ children }) {
           <main className="content">{children}</main>
         </div>
       </body>
+    <ThemeToggle />
     </html>
   );
 }
