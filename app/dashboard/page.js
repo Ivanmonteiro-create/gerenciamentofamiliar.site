@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import categorias from "../../data/categorias.json";
+import categorias from "../data/categorias.json";
 
 /** ====== helpers ====== **/
 const STORAGE_KEY = "gf_transactions_v2";
+const THEME_KEY = "gf_theme"; // "neutral" | "dark"
 
 function loadTransactions() {
   if (typeof window === "undefined") return [];
@@ -25,17 +26,13 @@ function currency(n) {
 }
 
 function ym(dateStr) {
-  // "YYYY-MM"
-  return dateStr.slice(0, 7);
+  return dateStr.slice(0, 7); // "YYYY-MM"
 }
-
 function monthLabel(ymStr) {
   const [y, m] = ymStr.split("-").map(Number);
-  // Dia arbitrário 1
   const d = new Date(y, m - 1, 1);
   return d.toLocaleDateString("pt-PT", { month: "short", year: "2-digit" });
 }
-
 function lastNMonths(n) {
   const out = [];
   const d = new Date();
@@ -46,7 +43,7 @@ function lastNMonths(n) {
     out.unshift(`${y}-${m}`);
     d.setMonth(d.getMonth() - 1);
   }
-  return out; // do mais antigo ao mais recente
+  return out;
 }
 
 /** ====== Gráfico de Pizza (SVG) ====== **/
@@ -54,20 +51,10 @@ function PieChart({ data, size = 220, inner = 70, colors = [] }) {
   const total = data.reduce((s, d) => s + d.value, 0);
   const cx = size / 2;
   const cy = size / 2;
-  const r = (size / 2) - 4;
-  let angle = -Math.PI / 2; // começa no topo
-
-  function arcPath(cx, cy, r, start, end) {
-    const x1 = cx + r * Math.cos(start);
-    const y1 = cy + r * Math.sin(start);
-    const x2 = cx + r * Math.cos(end);
-    const y2 = cy + r * Math.sin(end);
-    const large = end - start > Math.PI ? 1 : 0;
-    return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
-  }
+  const r = size / 2 - 4;
+  let angle = -Math.PI / 2;
 
   function donutPath(cx, cy, rOuter, rInner, start, end) {
-    // anel (donut)
     const x1 = cx + rOuter * Math.cos(start);
     const y1 = cy + rOuter * Math.sin(start);
     const x2 = cx + rOuter * Math.cos(end);
@@ -77,7 +64,6 @@ function PieChart({ data, size = 220, inner = 70, colors = [] }) {
     const x4 = cx + rInner * Math.cos(start);
     const y4 = cy + rInner * Math.sin(start);
     const large = end - start > Math.PI ? 1 : 0;
-
     return [
       `M ${x1} ${y1}`,
       `A ${rOuter} ${rOuter} 0 ${large} 1 ${x2} ${y2}`,
@@ -98,13 +84,14 @@ function PieChart({ data, size = 220, inner = 70, colors = [] }) {
     );
   }
 
+  let current = -Math.PI / 2;
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       {data.map((d, i) => {
         const frac = d.value / total;
-        const start = angle;
-        const end = angle + frac * Math.PI * 2;
-        angle = end;
+        const start = current;
+        const end = current + frac * Math.PI * 2;
+        current = end;
         const fill = colors[i % colors.length] || "#94a3b8";
         return <path key={d.label} d={donutPath(cx, cy, r, inner, start, end)} fill={fill} stroke="white" strokeWidth="1" />;
       })}
@@ -123,7 +110,6 @@ function Bars({ series, width = 560, height = 220 }) {
   return (
     <svg width={width} height={height}>
       <g transform={`translate(${padding.left},${padding.top})`}>
-        {/* eixo zero horizontal */}
         <line x1="0" y1={h/2} x2={w} y2={h/2} stroke="#e5e7eb" />
         {series.map((s, i) => {
           const x = i * xStep + xStep * 0.15;
@@ -144,13 +130,52 @@ function Bars({ series, width = 560, height = 220 }) {
   );
 }
 
+/** ====== Botão de tema (neutral ↔ dark) ====== **/
+function ThemeToggle() {
+  const [theme, setTheme] = useState("neutral"); // neutral | dark
+
+  useEffect(() => {
+    // carrega preferência salva
+    const saved = typeof window !== "undefined" ? localStorage.getItem(THEME_KEY) : null;
+    const initial = saved === "dark" ? "dark" : "neutral";
+    setTheme(initial);
+    if (initial === "dark") {
+      document.body.classList.add("theme-dark");
+    } else {
+      document.body.classList.remove("theme-dark");
+    }
+  }, []);
+
+  function toggle() {
+    const next = theme === "dark" ? "neutral" : "dark";
+    setTheme(next);
+    localStorage.setItem(THEME_KEY, next);
+    if (next === "dark") {
+      document.body.classList.add("theme-dark");
+    } else {
+      document.body.classList.remove("theme-dark");
+    }
+  }
+
+  return (
+    <button
+      className="btn-sm"
+      onClick={toggle}
+      aria-label="Alternar tema"
+      title={theme === "dark" ? "Tema escuro ativo — clicar para neutro" : "Tema neutro ativo — clicar para escuro"}
+      style={{ whiteSpace: "nowrap" }}
+    >
+      {theme === "dark" ? "🌞 Claro" : "🌙 Escuro"}
+    </button>
+  );
+}
+
 /** ====== Página ====== **/
 export default function Dashboard() {
-  // estado base
   const [txs, setTxs] = useState([]);
   const [mes, setMes] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; // YYYY-MM
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
   const [apenasPagos, setApenasPagos] = useState(true);
 
@@ -158,7 +183,6 @@ export default function Dashboard() {
     setTxs(loadTransactions());
   }, []);
 
-  // aplica filtro de mês e status
   const txsFiltradas = useMemo(() => {
     return txs.filter(t => {
       const okMes = mes ? t.data.startsWith(mes) : true;
@@ -167,80 +191,79 @@ export default function Dashboard() {
     });
   }, [txs, mes, apenasPagos]);
 
-  // totais mês
   const entradaMes = useMemo(() => txsFiltradas.filter(t => t.tipo === "entrada").reduce((s,t)=>s+t.valor,0), [txsFiltradas]);
-  const saidaMes = useMemo(() => txsFiltradas.filter(t => t.tipo === "saída").reduce((s,t)=>s+t.valor,0), [txsFiltradas]);
-  const saldoMes = entradaMes - saidaMes;
+  const saidaMes   = useMemo(() => txsFiltradas.filter(t => t.tipo === "saída").reduce((s,t)=>s+t.valor,0), [txsFiltradas]);
+  const saldoMes   = entradaMes - saidaMes;
 
-  // pizza: despesas por categoria no mês
   const despesasPorCategoria = useMemo(() => {
     const map = new Map();
     txsFiltradas.filter(t => t.tipo === "saída").forEach(t => {
       map.set(t.categoria, (map.get(t.categoria) || 0) + t.valor);
     });
-    const arr = Array.from(map.entries()).map(([label, value]) => ({ label, value })).sort((a,b)=>b.value - a.value);
-    return arr;
+    return Array.from(map.entries())
+      .map(([label, value]) => ({ label, value }))
+      .sort((a,b)=>b.value - a.value);
   }, [txsFiltradas]);
 
-  // barras: últimos 6 meses (saldo = entradas - saídas, sempre usando todos os lançamentos, mas respeitando apenasPagos)
   const ultimos = useMemo(() => {
     const months = lastNMonths(6);
     const set = new Set(months);
     const filtered = txs.filter(t => (apenasPagos ? t.status === "pago" : true) && set.has(ym(t.data)));
-    const agg = months.map(m => {
+    return months.map(m => {
       const entradas = filtered.filter(t => ym(t.data) === m && t.tipo === "entrada").reduce((s,t)=>s+t.valor,0);
-      const saidas = filtered.filter(t => ym(t.data) === m && t.tipo === "saída").reduce((s,t)=>s+t.valor,0);
+      const saidas   = filtered.filter(t => ym(t.data) === m && t.tipo === "saída").reduce((s,t)=>s+t.valor,0);
       return { label: m, short: monthLabel(m), value: entradas - saidas };
     });
-    return agg;
   }, [txs, apenasPagos]);
 
-  // paleta de cores para pizza
   const COLORS = ["#16a34a", "#22c55e", "#a3e635", "#2563eb", "#60a5fa", "#0ea5e9", "#06b6d4", "#f59e0b", "#f97316", "#ef4444", "#a855f7", "#ec4899"];
 
   return (
     <div className="wrap">
       <div className="head">
-        <h1>Dashboard</h1>
-        <div className="filters">
-          <div>
-            <label className="lbl">Mês</label>
-            <input className="inp" type="month" value={mes} onChange={(e)=>setMes(e.target.value)} />
-          </div>
-          <div style={{ alignSelf:"end" }}>
-            <label className="check">
-              <input type="checkbox" checked={apenasPagos} onChange={e=>setApenasPagos(e.target.checked)} />
-              Considerar apenas pagos
-            </label>
-          </div>
+        <h1 style={{ margin: 0 }}>Dashboard</h1>
+        <div className="head-actions">
+          <ThemeToggle />
+        </div>
+      </div>
+
+      <div className="filters">
+        <div>
+          <label className="lbl">Mês</label>
+          <input className="inp" type="month" value={mes} onChange={(e)=>setMes(e.target.value)} />
+        </div>
+        <div style={{ alignSelf:"end" }}>
+          <label className="check">
+            <input type="checkbox" checked={apenasPagos} onChange={e=>setApenasPagos(e.target.checked)} />
+            Considerar apenas pagos
+          </label>
         </div>
       </div>
 
       {/* cards resumo */}
       <div className="cards">
-        <div className="card in">{/* entradas */}
+        <div className="card in">
           <div className="c-title">Entradas</div>
           <div className="c-value">{currency(entradaMes)}</div>
         </div>
-        <div className="card out">{/* saídas */}
+        <div className="card out">
           <div className="c-title">Saídas</div>
           <div className="c-value">{currency(saidaMes)}</div>
         </div>
-        <div className={`card ${saldoMes >= 0 ? "ok" : "neg"}`}>{/* saldo */}
+        <div className={`card ${saldoMes >= 0 ? "ok" : "neg"}`}>
           <div className="c-title">Saldo</div>
           <div className="c-value">{currency(saldoMes)}</div>
         </div>
       </div>
 
       <div className="grid">
-        {/* Pizza */}
         <div className="panel">
           <div className="panel-head">
             <h3>Despesas por categoria ({mes})</h3>
           </div>
           <div className="pie-row">
             <PieChart
-              data={despesasPorCategoria.map((d, i) => ({ label: d.label, value: d.value }))}
+              data={despesasPorCategoria.map((d) => ({ label: d.label, value: d.value }))}
               size={260}
               inner={80}
               colors={COLORS}
@@ -260,7 +283,6 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Barras */}
         <div className="panel">
           <div className="panel-head">
             <h3>Evolução (últimos 6 meses)</h3>
@@ -272,12 +294,11 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* estilos */}
       <style jsx>{`
         .wrap{max-width:1120px;margin:0 auto;padding:16px;}
-        .head{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;}
-        h1{margin:0;}
-        .filters{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;}
+        .head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+        .head-actions{display:flex;gap:8px;align-items:center;}
+        .filters{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-top:6px;}
         .lbl{display:block;font-size:12px;color:#6b7280;margin-bottom:6px;}
         .inp{padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;font-size:14px;}
         .check{font-size:14px;color:#374151;display:flex;gap:8px;align-items:center;}
