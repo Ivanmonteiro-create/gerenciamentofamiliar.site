@@ -1,26 +1,16 @@
-import "./globals.css";
+export const metadata = {
+  title: "GF — Gerenciamento Financeiro",
+  description: "App pessoal de finanças",
+};
 
-export const metadata = { title: "Gerenciamento Financeiro" };
+import "./globals.css";
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="pt-BR">
-      <body>
-        <div className="shell">
-          <aside className="sidebar">
-            <h1 className="logo">GF</h1>
-            <nav className="menu">
-              <a href="/dashboard">🏠 Dashboard</a>
-              <a href="/despesas">💸 Despesas & Receitas</a>
-              <a href="/cartoes">💳 Cartões</a>
-              <a href="/dividas">📉 Dívidas</a>
-              <a href="/emprestimos">🏦 Empréstimos</a>
-              <a href="/investimentos">📈 Investimentos</a>
-              <a href="/configuracoes">⚙️ Configurações</a>
-            </nav>
-          </aside>
-          <main className="content">{children}</main>
-        </div>
+    <html lang="pt">
+      {/* classe ativa o tema global */}
+      <body className="theme-dark-soft">
+        {children}
       </body>
     </html>
   );
