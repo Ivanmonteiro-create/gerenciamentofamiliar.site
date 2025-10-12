@@ -1,47 +1,64 @@
 "use client";
-
 import { useEffect, useState } from "react";
 
-const THEME_KEY = "gf_theme"; // "neutral" | "dark"
-
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState("neutral");
+  const [theme, setTheme] = useState("light"); // 'light' | 'dark'
 
-  // Carrega preferência e aplica classe no <body>
+  // carrega tema salvo
   useEffect(() => {
-    const saved = typeof window !== "undefined" ? localStorage.getItem(THEME_KEY) : null;
-    const initial = saved === "dark" ? "dark" : "neutral";
-    setTheme(initial);
-    if (initial === "dark") document.body.classList.add("theme-dark");
-    else document.body.classList.remove("theme-dark");
+    const saved = typeof window !== "undefined" ? localStorage.getItem("gf-theme") : null;
+    const next = saved === "dark" ? "dark" : "light";
+    setTheme(next);
+    if (typeof document !== "undefined") {
+      document.documentElement.dataset.theme = next; // <html data-theme="...">
+    }
   }, []);
 
-  function toggle() {
-    const next = theme === "dark" ? "neutral" : "dark";
+  // aplica e salva
+  const toggle = () => {
+    const next = theme === "dark" ? "light" : "dark";
     setTheme(next);
-    localStorage.setItem(THEME_KEY, next);
-    if (next === "dark") document.body.classList.add("theme-dark");
-    else document.body.classList.remove("theme-dark");
-  }
+    if (typeof document !== "undefined") {
+      document.documentElement.dataset.theme = next;
+    }
+    if (typeof window !== "undefined") {
+      localStorage.setItem("gf-theme", next);
+    }
+  };
+
+  // ícones SVG (sem libs)
+  const Sun = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="4" stroke="currentColor" strokeWidth="2"/>
+      <path d="M12 2v2m0 16v2M4 12H2m20 0h-2M5.64 5.64l1.41 1.41M16.95 16.95l1.41 1.41M5.64 18.36l1.41-1.41M16.95 7.05l1.41-1.41"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+  const Moon = (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"
+            stroke="currentColor" strokeWidth="2" fill="none"/>
+    </svg>
+  );
 
   return (
-    <button
-      onClick={toggle}
-      aria-label="Alternar tema"
-      title={theme === "dark" ? "Tema escuro ativo — clicar para neutro" : "Tema neutro ativo — clicar para escuro"}
-      style={{
-        padding: "8px 10px",
-        borderRadius: 10,
-        border: "1px solid var(--bd, #e5e7eb)",
-        background: "var(--btn, #fff)",
-        color: "var(--btnText, #111827)",
-        fontWeight: 700,
-        cursor: "pointer",
-        boxShadow: "0 1px 2px rgba(0,0,0,.05)",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {theme === "dark" ? "🌞 Claro" : "🌙 Escuro"}
-    </button>
+    <div className="theme-toggle" role="group" aria-label="Alternar tema">
+      <button
+        className={`theme-toggle__btn ${theme === "light" ? "is-active" : ""}`}
+        onClick={toggle}
+        title={theme === "light" ? "Tema claro (clique para escuro)" : "Tema claro"}
+        aria-pressed={theme === "light"}
+      >
+        {Sun}
+      </button>
+      <button
+        className={`theme-toggle__btn ${theme === "dark" ? "is-active" : ""}`}
+        onClick={toggle}
+        title={theme === "dark" ? "Tema escuro (clique para claro)" : "Tema escuro"}
+        aria-pressed={theme === "dark"}
+      >
+        {Moon}
+      </button>
+    </div>
   );
 }
