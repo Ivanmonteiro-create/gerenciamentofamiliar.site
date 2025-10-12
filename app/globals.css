@@ -62,3 +62,52 @@ thead th {
 label, .muted, .small {
   color: #666;
 }
+/* ==== THEME DARK (aplica quando body.theme-dark) ==== */
+body.theme-dark {
+  background: linear-gradient(180deg, #1e1f23 0%, #2a2c31 100%);
+  color: #e7e9ec;
+}
+
+/* Cartões e painéis */
+body.theme-dark .card,
+body.theme-dark .panel {
+  background: #2e3035;
+  border: 1px solid #3b3d42;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* Tabela (cabeçalho/células) */
+body.theme-dark thead th {
+  background: #34363b;
+  color: #f9f9f9;
+}
+body.theme-dark .td,
+body.theme-dark .th,
+body.theme-dark td,
+body.theme-dark th {
+  color: #e7e9ec;
+  border-bottom: 1px solid #3b3d42;
+}
+
+/* Inputs */
+body.theme-dark input[type="text"],
+body.theme-dark input[type="date"],
+body.theme-dark input[type="number"],
+body.theme-dark input[type="month"],
+body.theme-dark select,
+body.theme-dark textarea,
+body.theme-dark .inp {
+  background: #3a3c41;
+  color: #f0f0f0;
+  border: 1px solid #4a4d52;
+}
+
+/* Textos secundários */
+body.theme-dark .lbl,
+body.theme-dark .muted,
+body.theme-dark .small {
+  color: #b0b3b8;
+}
+
+/* Gráficos (SVG) */
+body.theme-dark svg text { fill: #e7e9ec; }
