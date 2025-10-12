@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import categorias from "../../data/categorias.json";
 
 // —— helpers ——
-const STORAGE_KEY = "gf_transactions_v2"; // v2 por causa do novo campo "status"
+const STORAGE_KEY = "gf_transactions_v2";
 
 function loadTransactions() {
   if (typeof window === "undefined") return [];
@@ -38,43 +38,36 @@ function todayISO() {
 }
 
 export default function DespesasReceitas() {
-  // —— estado principal ——
   const [txs, setTxs] = useState([]);
   const [form, setForm] = useState({
     data: todayISO(),
     descricao: "",
     categoria: "",
-    tipo: "saída", // "entrada" | "saída"
+    tipo: "saída",
     valor: "",
-    status: "pago", // "pago" | "pendente"
+    status: "pago",
   });
 
-  // estado de edição (linha inline)
   const [editId, setEditId] = useState(null);
   const [editForm, setEditForm] = useState(null);
 
-  // filtros
-  const [fTipo, setFTipo] = useState("todas"); // todas | entrada | saída
+  const [fTipo, setFTipo] = useState("todas");
   const [fCategoria, setFCategoria] = useState("todas");
   const [fMes, setFMes] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; // YYYY-MM
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
 
-  // carregar do localStorage
   useEffect(() => {
-    // migrações simples: se vier do v1, adiciona status "pago" por padrão
     const loaded = loadTransactions();
     const withStatus = loaded.map((t) => (t.status ? t : { ...t, status: "pago" }));
     setTxs(withStatus);
   }, []);
 
-  // salvar sempre que mudar
   useEffect(() => {
     saveTransactions(txs);
   }, [txs]);
 
-  // categorias combinadas para o select
   const categoriasSelect = useMemo(() => {
     return [
       ...categorias.entradas,
@@ -83,7 +76,6 @@ export default function DespesasReceitas() {
     ];
   }, []);
 
-  // adicionar transação
   function addTx() {
     const v = parseFloat(String(form.valor).replace(",", "."));
     if (!form.descricao || !form.categoria || !form.data || !form.tipo || isNaN(v) || v <= 0) {
@@ -92,16 +84,15 @@ export default function DespesasReceitas() {
     }
     const novo = {
       id: Math.random().toString(36).slice(2),
-      data: form.data, // YYYY-MM-DD
+      data: form.data,
       descricao: form.descricao.trim(),
       categoria: form.categoria,
-      tipo: form.tipo, // entrada/saída
+      tipo: form.tipo,
       valor: v,
-      status: form.status, // pago/pendente
+      status: form.status,
       criadoEm: new Date().toISOString(),
     };
     setTxs((prev) => [novo, ...prev].sort((a, b) => (a.data < b.data ? 1 : -1)));
-    // reset leve mantendo tipo, categoria e status
     setForm((f) => ({
       ...f,
       descricao: "",
@@ -152,17 +143,15 @@ export default function DespesasReceitas() {
     );
   }
 
-  // filtros aplicados
   const txsFiltradas = useMemo(() => {
     return txs.filter((t) => {
       const okTipo = fTipo === "todas" ? true : t.tipo === fTipo;
       const okCat = fCategoria === "todas" ? true : t.categoria === fCategoria;
-      const okMes = fMes === "tudo" ? true : t.data.startsWith(fMes); // compara YYYY-MM
+      const okMes = fMes === "tudo" ? true : t.data.startsWith(fMes);
       return okTipo && okCat && okMes;
     });
   }, [txs, fTipo, fCategoria, fMes]);
 
-  // totais — previsto (todos) x real (somente pagos)
   const totalEntradaPrev = useMemo(
     () => txsFiltradas.filter(t => t.tipo === "entrada").reduce((s, t) => s + t.valor, 0),
     [txsFiltradas]
@@ -188,13 +177,13 @@ export default function DespesasReceitas() {
       <h2 style={{ marginTop: 0 }}>Despesas & Receitas</h2>
 
       {/* —— Formulário —— */}
-      <div className="card" style={{ marginBottom: 14 }}>
+      <div className="card" style={{ marginBottom: 12 }}>
         <h3 style={{ marginTop: 0 }}>Novo lançamento</h3>
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 10,
+            gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+            gap: 8,
             alignItems: "end",
           }}
         >
@@ -277,13 +266,13 @@ export default function DespesasReceitas() {
       </div>
 
       {/* —— Filtros + Totais —— */}
-      <div className="card" style={{ marginBottom: 14 }}>
-        {/* linha 1: filtros */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        {/* filtros */}
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 10,
+            gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+            gap: 8,
           }}
         >
           <div>
@@ -313,7 +302,7 @@ export default function DespesasReceitas() {
               value={fMes}
               onChange={(e) => setFMes(e.target.value || "tudo")}
             />
-            <div style={{ marginTop: 6 }}>
+            <div style={{ marginTop: 4 }}>
               <label style={{ fontSize: 12 }}>
                 <input
                   type="checkbox"
@@ -326,28 +315,42 @@ export default function DespesasReceitas() {
           </div>
         </div>
 
-        {/* linha 2: totais (previsto x real) */}
-        <div className="stats" style={{ marginTop: 12 }}>
+        {/* Totais */}
+        <div className="stats compact" style={{ marginTop: 10 }}>
           <div className="stat">
-            <small className="muted">Entradas (Prev.)</small>
-            <div className="stat-value">{currency(totalEntradaPrev)}</div>
-            <small className="muted">Entradas (Reais)</small>
-            <div className="stat-value positivo">{currency(totalEntradaReal)}</div>
-          </div>
-          <div className="stat">
-            <small className="muted">Saídas (Prev.)</small>
-            <div className="stat-value saida">{currency(totalSaidaPrev)}</div>
-            <small className="muted">Saídas (Reais)</small>
-            <div className="stat-value saida">{currency(totalSaidaReal)}</div>
-          </div>
-          <div className="stat">
-            <small className="muted">Saldo Previsto</small>
-            <div className={`stat-value ${saldoPrev >= 0 ? "positivo" : "negativo"}`}>
-              {currency(saldoPrev)}
+            <div className="row">
+              <span className="muted">Entradas (Prev.)</span>
+              <span className="val">{currency(totalEntradaPrev)}</span>
             </div>
-            <small className="muted">Saldo Real</small>
-            <div className={`stat-value ${saldoReal >= 0 ? "positivo" : "negativo"}`}>
-              {currency(saldoReal)}
+            <div className="row">
+              <span className="muted">Entradas (Reais)</span>
+              <span className="val positivo">{currency(totalEntradaReal)}</span>
+            </div>
+          </div>
+
+          <div className="stat">
+            <div className="row">
+              <span className="muted">Saídas (Prev.)</span>
+              <span className="val saida">{currency(totalSaidaPrev)}</span>
+            </div>
+            <div className="row">
+              <span className="muted">Saídas (Reais)</span>
+              <span className="val saida">{currency(totalSaidaReal)}</span>
+            </div>
+          </div>
+
+          <div className="stat">
+            <div className="row">
+              <span className="muted">Saldo Previsto</span>
+              <span className={`val ${saldoPrev >= 0 ? "positivo" : "negativo"}`}>
+                {currency(saldoPrev)}
+              </span>
+            </div>
+            <div className="row">
+              <span className="muted">Saldo Real</span>
+              <span className={`val ${saldoReal >= 0 ? "positivo" : "negativo"}`}>
+                {currency(saldoReal)}
+              </span>
             </div>
           </div>
         </div>
@@ -369,77 +372,14 @@ export default function DespesasReceitas() {
               </tr>
             </thead>
             <tbody>
-              {txsFiltradas.map((t) => {
-                const isEditing = editId === t.id;
-                if (isEditing) {
-                  return (
-                    <tr key={t.id} className="tr">
-                      <td className="td">
-                        <input
-                          className="inp"
-                          type="date"
-                          value={editForm.data}
-                          onChange={(e) => setEditForm({ ...editForm, data: e.target.value })}
-                          style={{ minWidth: 130 }}
-                        />
-                      </td>
-                      <td className="td">
-                        <input
-                          className="inp"
-                          value={editForm.descricao}
-                          onChange={(e) => setEditForm({ ...editForm, descricao: e.target.value })}
-                        />
-                      </td>
-                      <td className="td">
-                        <select
-                          className="inp"
-                          value={editForm.categoria}
-                          onChange={(e) => setEditForm({ ...editForm, categoria: e.target.value })}
-                        >
-                          {categoriasSelect.map((c) => (
-                            <option key={c} value={c}>{c}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="td">
-                        <select
-                          className="inp"
-                          value={editForm.tipo}
-                          onChange={(e) => setEditForm({ ...editForm, tipo: e.target.value })}
-                        >
-                          <option value="entrada">Entrada</option>
-                          <option value="saída">Saída</option>
-                        </select>
-                      </td>
-                      <td className="td" style={{ textAlign: "right" }}>
-                        <input
-                          className="inp"
-                          type="number"
-                          step="0.01"
-                          value={editForm.valor}
-                          onChange={(e) => setEditForm({ ...editForm, valor: e.target.value })}
-                          style={{ textAlign: "right", minWidth: 120 }}
-                        />
-                      </td>
-                      <td className="td">
-                        <select
-                          className="inp"
-                          value={editForm.status}
-                          onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
-                        >
-                          <option value="pago">Pago</option>
-                          <option value="pendente">Pendente</option>
-                        </select>
-                      </td>
-                      <td className="td" style={{ textAlign: "center" }}>
-                        <button className="btn-sm" onClick={saveEdit}>Salvar</button>{" "}
-                        <button className="btn-sm" onClick={cancelEdit}>Cancelar</button>
-                      </td>
-                    </tr>
-                  );
-                }
-
-                return (
+              {txsFiltradas.length === 0 ? (
+                <tr>
+                  <td className="td" colSpan={7} style={{ textAlign: "center", color: "#6b7280" }}>
+                    Nenhum lançamento encontrado.
+                  </td>
+                </tr>
+              ) : (
+                txsFiltradas.map((t) => (
                   <tr key={t.id} className="tr">
                     <td className="td">{new Date(t.data + "T00:00:00").toLocaleDateString("pt-PT")}</td>
                     <td className="td">{t.descricao}</td>
@@ -461,61 +401,36 @@ export default function DespesasReceitas() {
                       <button className="btn-sm danger" onClick={() => delTx(t.id)}>Excluir</button>
                     </td>
                   </tr>
-                );
-              })}
-              {txsFiltradas.length === 0 && (
-                <tr>
-                  <td className="td" colSpan={7} style={{ textAlign: "center", color:"#6b7280" }}>
-                    Nenhum lançamento encontrado.
-                  </td>
-                </tr>
+                ))
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* estilos locais */}
+      {/* —— CSS —— */}
       <style jsx>{`
-        .lbl { display:block; font-size:12px; color:#6b7280; margin-bottom:6px; }
-        .inp { width:100%; padding:10px 11px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; }
-        .btn { width:100%; padding:11px 12px; border:0; border-radius:8px; background:#0ea5e9; color:#fff; cursor:pointer; }
-        .btn:hover { opacity:.9; }
-        .btn-sm { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer; }
-        .btn-sm:hover { background:#f3f4f6; }
-        .btn-sm.danger { border-color:#fecaca; color:#b91c1c; }
-        .th, .td { padding:10px 12px; border-bottom:1px solid #f1f5f9; text-align:left; }
-        .tr:nth-child(even) { background:#fafafa; }
-
-        /* badges de status */
-        .badge {
-          display:inline-block;
-          padding:4px 8px;
-          border-radius:999px;
-          font-size:12px;
-          border:1px solid #e5e7eb;
-          background:#fff;
-        }
-        .badge.ok { color:#065f46; border-color:#bbf7d0; background:#ecfdf5; }
-        .badge.pend { color:#92400e; border-color:#fde68a; background:#fffbeb; }
-
-        /* Totais: grid responsivo, 3 cartões dentro do card */
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 10px;
-          align-items: stretch;
-        }
-        @media (max-width: 900px) { .stats { grid-template-columns: 1fr; } }
-        .stat {
-          background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:12px;
-        }
-        .stat-value {
-          font-weight:700; font-size:18px; margin-top:4px; text-align:right;
-        }
-        .stat-value.saida { color:#b91c1c; }
-        .stat-value.positivo { color:#065f46; }
-        .stat-value.negativo { color:#b91c1c; }
+        .lbl{display:block;font-size:12px;color:#6b7280;margin-bottom:6px;}
+        .inp{width:100%;padding:8px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;font-size:14px;}
+        .btn{width:100%;padding:10px 12px;border:0;border-radius:8px;background:#0ea5e9;color:#fff;cursor:pointer;font-weight:600;}
+        .btn:hover{opacity:.9;}
+        .btn-sm{padding:6px 10px;border:1px solid #e5e7eb;border-radius:8px;background:#fff;cursor:pointer;font-size:14px;}
+        .btn-sm:hover{background:#f3f4f6;}
+        .btn-sm.danger{border-color:#fecaca;color:#b91c1c;}
+        .th,.td{padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:left;font-size:14px;}
+        .tr:nth-child(even){background:#fafafa;}
+        .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #e5e7eb;background:#fff;white-space:nowrap;}
+        .badge.ok{color:#065f46;border-color:#bbf7d0;background:#ecfdf5;}
+        .badge.pend{color:#92400e;border-color:#fde68a;background:#fffbeb;}
+        .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;align-items:stretch;}
+        @media(max-width:980px){.stats{grid-template-columns:1fr;}}
+        .stat{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:8px;}
+        .row{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:8px;white-space:nowrap;}
+        .muted{color:#6b7280;font-size:13px;margin:0;line-height:1;}
+        .val{font-weight:700;font-size:15px;text-align:right;margin:0;line-height:1;display:inline-block;}
+        .val.saida{color:#b91c1c;}
+        .val.positivo{color:#065f46;}
+        .val.negativo{color:#b91c1c;}
       `}</style>
     </>
   );
