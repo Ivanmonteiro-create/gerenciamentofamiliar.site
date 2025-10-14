@@ -1,16 +1,34 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-/* ============================
-   Chaves de armazenamento
-============================ */
-const STORAGE_CARDS = "gf_cards_v2";
-const STORAGE_OPS = "gf_card_ops_v2";
+/**
+ * Modelo de dados salvo em localStorage (chave: gf-cartoes)
+ * [
+ *   {
+ *     id: "c1",
+ *     nome: "Millennium",
+ *     cor: "#2563eb",
+ *     limite: 6000,
+ *     fechamento: 1,   // dia
+ *     vencimento: 5,   // dia
+ *     lancamentos: [
+ *       {
+ *         id: "l1",
+ *         data: "2025-10-14",
+ *         descricao: "Mercado",
+ *         parcelas: 2,              // total de parcelas
+ *         parcelaAtual: 1,          // opcional: quantas já foram quitadas
+ *         valor: 400,
+ *         status: "Pago" | "Pendente"
+ *       }
+ *     ]
+ *   }
+ * ]
+ */
 
-/* ============================
-   Utilitários
-============================ */
+// ------- Utils -------
+const LS_KEY = "gf-cartoes";
 const currency = (n = 0) =>
   (isFinite(n) ? n : 0).toLocaleString("pt-PT", {
     style: "currency",
@@ -18,575 +36,516 @@ const currency = (n = 0) =>
     minimumFractionDigits: 2,
   });
 
-const pad2 = (n) => String(n).padStart(2, "0");
+function uid(prefix = "id") {
+  return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
+}
 
-const fmtDateDDMMYY = (iso) => {
-  const d = new Date(iso);
-  if (isNaN(d)) return "";
-  return `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${String(
-    d.getFullYear()
+function ymdToDisplay(ymd) {
+  // "2025-10-14" -> "14/10/25"
+  if (!ymd) return "";
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return ymd;
+  return `${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${String(
+    y
   ).slice(-2)}`;
-};
-
-const monthLabelShort = (dateObj) => {
-  const m = dateObj.toLocaleDateString("pt-PT", { month: "long" });
-  const yy = String(dateObj.getFullYear()).slice(-2);
-  return `${m} de ${yy}`;
-};
-
-const yyyymm = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
-
-const newId = () => Math.random().toString(36).slice(2, 10);
-
-function load(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function save(key, data) {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
 }
 
-/* ============================
-   Página
-============================ */
+// mostra parcelas como "2-1" (total-restantes) ou "—" se for parcela única
+function formatParcelas(l) {
+  const total = Number(l?.parcelas || 1);
+
+  // Se controlar explicitamente, usa parcelaAtual:
+  const atual = Number(l?.parcelaAtual || 0);
+
+  // fallback inteligente: se marcou "Pago" e total>1, assume ao menos 1 pago
+  const deduzida = l?.status === "Pago" && total > 1 ? 1 : 0;
+
+  const pagas = Math.max(atual, deduzida);
+  const restantes = Math.max(0, total - pagas);
+
+  return total > 1 ? `${total}-${restantes}` : "—";
+}
+
+// ------- Página -------
 export default function CartoesPage() {
-  const [cards, setCards] = useState([]);
-  const [ops, setOps] = useState([]);
-
-  const [selectedCard, setSelectedCard] = useState("");
-  const [monthCursor, setMonthCursor] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d;
+  const [dados, setDados] = useState([]);
+  const [cardIdAtivo, setCardIdAtivo] = useState("");
+  const [novoCard, setNovoCard] = useState({
+    nome: "",
+    cor: "#2563eb",
+    limite: 0,
+    fechamento: 1,
+    vencimento: 5,
   });
-  const [onlyPaid, setOnlyPaid] = useState(false);
+  const [novoLanc, setNovoLanc] = useState({
+    data: new Date().toISOString().slice(0, 10),
+    descricao: "",
+    parcelas: 1,
+    valor: "",
+    status: "Pendente",
+  });
 
-  // Form novo cartão
-  const [cardName, setCardName] = useState("");
-  const [cardLimit, setCardLimit] = useState("");
-  const [cardColor, setCardColor] = useState("#2563eb");
-  const [cardClose, setCardClose] = useState(1);      // dia de fechamento
-  const [cardDue, setCardDue] = useState(5);          // dia de vencimento
-
-  // Form nova compra
-  const [opDate, setOpDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [opDesc, setOpDesc] = useState("");
-  const [opParcels, setOpParcels] = useState(1);
-  const [opAmount, setOpAmount] = useState("");
-
-  // Carrega dados
+  // Carrega / salva no localStorage
   useEffect(() => {
-    const c = load(STORAGE_CARDS, []);
-    const o = load(STORAGE_OPS, []);
-    setCards(c);
-    setOps(o);
-    if (c.length) setSelectedCard(c[0].id);
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        setDados(Array.isArray(arr) ? arr : []);
+        if (Array.isArray(arr) && arr[0]) setCardIdAtivo(arr[0].id);
+      }
+    } catch {}
   }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify(dados));
+    } catch {}
+  }, [dados]);
 
-  // Persiste
-  useEffect(() => save(STORAGE_CARDS, cards), [cards]);
-  useEffect(() => save(STORAGE_OPS, ops), [ops]);
-
-  const currentMonthKey = yyyymm(monthCursor);
-
-  const selected = useMemo(
-    () => cards.find((c) => c.id === selectedCard) || null,
-    [cards, selectedCard]
+  const cardAtivo = useMemo(
+    () => dados.find((c) => c.id === cardIdAtivo) || null,
+    [dados, cardIdAtivo]
   );
 
-  // Lançamentos do mês/ cartão selecionado
-  const monthOps = useMemo(() => {
-    return ops
-      .filter((o) => o.cardId === selectedCard)
-      .filter((o) => yyyymm(new Date(o.dateISO)) === currentMonthKey)
-      .filter((o) => (onlyPaid ? o.status === "pago" : true))
-      .sort((a, b) => new Date(b.dateISO) - new Date(a.dateISO));
-  }, [ops, selectedCard, currentMonthKey, onlyPaid]);
+  // Cálculos de resumo do cartão ativo
+  const resumo = useMemo(() => {
+    if (!cardAtivo) {
+      return { usado: 0, pendente: 0, disponivel: 0 };
+    }
+    const usado = cardAtivo.lancamentos
+      .filter((l) => l.status === "Pago")
+      .reduce((a, b) => a + Number(b.valor || 0), 0);
+    const pendente = cardAtivo.lancamentos
+      .filter((l) => l.status !== "Pago")
+      .reduce((a, b) => a + Number(b.valor || 0), 0);
+    const disponivel = Number(cardAtivo.limite || 0) - (usado + pendente);
+    return { usado, pendente, disponivel };
+  }, [cardAtivo]);
 
-  // Totais do mês
-  const totals = useMemo(() => {
-    const list = ops
-      .filter((o) => o.cardId === selectedCard)
-      .filter((o) => yyyymm(new Date(o.dateISO)) === currentMonthKey);
-
-    const used = list.reduce((s, o) => s + Math.max(0, +o.amount || 0), 0);
-    const pending = list
-      .filter((o) => o.status !== "pago")
-      .reduce((s, o) => s + Math.max(0, +o.amount || 0), 0);
-
-    const limit = Number(selected?.limit || 0);
-    const available = Math.max(0, limit - used);
-
-    return { limit, used, pending, available };
-  }, [ops, selected, currentMonthKey]);
-
-  /* ============================
-     Ações
-  ============================ */
-  const addCard = () => {
-    const name = cardName.trim();
-    const limit = Number(cardLimit || 0);
-    if (!name || limit <= 0) return alert("Informe nome e limite do cartão.");
-    const id = newId();
-    const next = [
-      ...cards,
-      { id, name, limit, color: cardColor, closeDay: Number(cardClose), dueDay: Number(cardDue) },
-    ];
-    setCards(next);
-    setSelectedCard(id);
-    setCardName("");
-    setCardLimit("");
-  };
-
-  const saveCardSettings = () => {
-    if (!selected) return;
-    setCards((arr) =>
-      arr.map((c) =>
-        c.id === selected.id
-          ? { ...c, color: cardColor, closeDay: Number(cardClose), dueDay: Number(cardDue) }
-          : c
-      )
-    );
-  };
-
-  const deleteCard = (id) => {
-    if (!confirm("Excluir este cartão e seus lançamentos?")) return;
-    setCards((arr) => arr.filter((c) => c.id !== id));
-    setOps((arr) => arr.filter((o) => o.cardId !== id));
-    if (selectedCard === id) setSelectedCard("");
-  };
-
-  const addOp = () => {
-    if (!selected) return alert("Selecione um cartão.");
-    const amount = Number(opAmount || 0);
-    const parcels = Math.max(1, Number(opParcels || 1));
-    if (!opDesc.trim() || amount <= 0) return alert("Informe descrição e valor.");
-
-    const newOp = {
-      id: newId(),
-      cardId: selected.id,
-      dateISO: opDate,
-      description: opDesc.trim(),
-      amount,
-      parcels,
-      status: "pendente",
+  // Ações – Cartão
+  function salvarNovoCartao(e) {
+    e.preventDefault();
+    if (!novoCard.nome.trim()) return;
+    const c = {
+      id: uid("card"),
+      nome: novoCard.nome.trim(),
+      cor: novoCard.cor || "#2563eb",
+      limite: Number(novoCard.limite || 0),
+      fechamento: Number(novoCard.fechamento || 1),
+      vencimento: Number(novoCard.vencimento || 5),
+      lancamentos: [],
     };
-    setOps((arr) => [newOp, ...arr]);
+    const arr = [...dados, c];
+    setDados(arr);
+    setCardIdAtivo(c.id);
+    setNovoCard({ nome: "", cor: "#2563eb", limite: 0, fechamento: 1, vencimento: 5 });
+  }
 
-    setOpDesc("");
-    setOpAmount("");
-    setOpParcels(1);
-  };
+  function excluirCartao(id) {
+    if (!confirm("Excluir este cartão?")) return;
+    const arr = dados.filter((c) => c.id !== id);
+    setDados(arr);
+    if (arr[0]) setCardIdAtivo(arr[0].id);
+    else setCardIdAtivo("");
+  }
 
-  const togglePaid = (id) =>
-    setOps((arr) =>
-      arr.map((o) => (o.id === id ? { ...o, status: o.status === "pago" ? "pendente" : "pago" } : o))
+  // Ações – Lançamentos
+  function adicionarLancamento(e) {
+    e.preventDefault();
+    if (!cardAtivo) return;
+    const l = {
+      id: uid("l"),
+      data: novoLanc.data,
+      descricao: novoLanc.descricao.trim(),
+      parcelas: Math.max(1, Number(novoLanc.parcelas || 1)),
+      parcelaAtual: 0,
+      valor: Number(novoLanc.valor || 0),
+      status: novoLanc.status,
+    };
+    const arr = dados.map((c) =>
+      c.id === cardAtivo.id
+        ? { ...c, lancamentos: [l, ...c.lancamentos] }
+        : c
     );
+    setDados(arr);
+    setNovoLanc({
+      data: new Date().toISOString().slice(0, 10),
+      descricao: "",
+      parcelas: 1,
+      valor: "",
+      status: "Pendente",
+    });
+  }
 
-  const editOp = (id) => {
-    const item = ops.find((o) => o.id === id);
-    if (!item) return;
-    const desc = prompt("Descrição:", item.description) ?? item.description;
-    const val = Number(prompt("Valor (número):", String(item.amount)) ?? item.amount);
-    const dt = prompt("Data (AAAA-MM-DD):", item.dateISO) ?? item.dateISO;
-    const pc = Math.max(1, Number(prompt("Parcelas:", String(item.parcels)) ?? item.parcels));
-    setOps((arr) =>
-      arr.map((o) => (o.id === id ? { ...o, description: desc, amount: val, dateISO: dt, parcels: pc } : o))
+  function marcarPago(idLanc, pago = true) {
+    if (!cardAtivo) return;
+    const arr = dados.map((c) => {
+      if (c.id !== cardAtivo.id) return c;
+      const lancamentos = c.lancamentos.map((l) =>
+        l.id === idLanc
+          ? {
+              ...l,
+              status: pago ? "Pago" : "Pendente",
+              parcelaAtual:
+                pago && l.parcelas > 1
+                  ? Math.min((l.parcelaAtual || 0) + 1, l.parcelas)
+                  : l.parcelaAtual || 0,
+            }
+          : l
+      );
+      return { ...c, lancamentos };
+    });
+    setDados(arr);
+  }
+
+  function excluirLancamento(idLanc) {
+    if (!cardAtivo) return;
+    if (!confirm("Excluir lançamento?")) return;
+    const arr = dados.map((c) =>
+      c.id === cardAtivo.id
+        ? { ...c, lancamentos: c.lancamentos.filter((l) => l.id !== idLanc) }
+        : c
     );
-  };
+    setDados(arr);
+  }
 
-  const deleteOp = (id) => {
-    if (!confirm("Excluir este lançamento?")) return;
-    setOps((arr) => arr.filter((o) => o.id !== id));
-  };
-
-  const exportCSV = () => {
-    if (!selected) return;
-    const rows = [
-      ["Cartão", selected.name],
-      ["Mês", monthLabelShort(monthCursor)],
-      ["Fechamento", selected.closeDay ?? ""],
-      ["Vencimento", selected.dueDay ?? ""],
-      [],
-      ["Data", "Descrição", "Parcela(s)", "Valor", "Status"],
-      ...monthOps.map((o) => [
-        fmtDateDDMMYY(o.dateISO),
-        o.description,
-        String(o.parcels),
-        (isFinite(+o.amount) ? +o.amount : 0).toString().replace(".", ","),
-        o.status,
-      ]),
-    ];
-    const csv =
-      "data:text/csv;charset=utf-8," +
-      rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
-    const a = document.createElement("a");
-    a.href = encodeURI(csv);
-    a.download = `cartao_${selected.name}_${yyyymm(monthCursor)}.csv`;
-    a.click();
-  };
-
-  const shiftMonth = (delta) => {
-    const d = new Date(monthCursor);
-    d.setMonth(d.getMonth() + delta);
-    setMonthCursor(d);
-  };
-
-  // Sincroniza campos do cartão selecionado
-  useEffect(() => {
-    if (!selected) return;
-    setCardColor(selected.color || "#2563eb");
-    setCardClose(selected.closeDay ?? 1);
-    setCardDue(selected.dueDay ?? 5);
-  }, [selected]);
-
-  /* ============================
-     UI
-  ============================ */
+  // --------- UI ----------
   return (
-    <div className="wrap">
-      <h1 className="title">Cartões de Crédito</h1>
+    <div style={{ overflowX: "auto" }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>
+        Cartões de Crédito
+      </h1>
 
-      <div className="grid">
-        {/* COLUNA ESQUERDA — cartão + fatura (layout “antigo”) */}
-        <section className="card">
-          {/* Linha cartão + resumo + fechamento/vencimento */}
-          <div className="row between wrap-gap">
-            <div className="col">
-              <label className="lbl">Cartão</label>
+      <div className="cartoes-grid">
+        {/* ESQUERDA */}
+        <section className="cartoes-col-esq">
+          {/* Cabeçalho / seleção do cartão */}
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
+              marginBottom: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <label>
+              Cartão:&nbsp;
               <select
-                className="inp"
-                value={selectedCard}
-                onChange={(e) => setSelectedCard(e.target.value)}
+                value={cardIdAtivo}
+                onChange={(e) => setCardIdAtivo(e.target.value)}
               >
-                <option value="">Selecione...</option>
-                {cards.map((c) => (
+                {dados.length === 0 && <option value="">—</option>}
+                {dados.map((c) => (
                   <option key={c.id} value={c.id}>
-                    {c.name} (limite {currency(c.limit)})
+                    {c.nome} (limite {currency(c.limite)})
                   </option>
                 ))}
               </select>
-            </div>
+            </label>
 
-            {selected && (
-              <div className="col" style={{ minWidth: 240 }}>
-                <label className="lbl">Resumo do mês</label>
-                <div className="summary">
-                  <div><small>Limite</small><b>{currency(totals.limit)}</b></div>
-                  <div><small>Usado</small><b>{currency(totals.used)}</b></div>
-                  <div><small>Pendente</small><b>{currency(totals.pending)}</b></div>
-                  <div><small>Disponível</small><b>{currency(totals.available)}</b></div>
-                </div>
-              </div>
-            )}
-
-            {selected && (
-              <div className="col" style={{ minWidth: 260 }}>
-                <label className="lbl">Configuração do cartão</label>
-                <div className="row gap8">
-                  <div className="col" style={{ width: 110 }}>
-                    <label className="lbl">Fechamento</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      className="inp"
-                      value={cardClose}
-                      onChange={(e) => setCardClose(e.target.value)}
-                    />
-                  </div>
-                  <div className="col" style={{ width: 110 }}>
-                    <label className="lbl">Vencimento</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={31}
-                      className="inp"
-                      value={cardDue}
-                      onChange={(e) => setCardDue(e.target.value)}
-                    />
-                  </div>
-                  <div className="col" style={{ width: 90 }}>
-                    <label className="lbl">Cor</label>
-                    <input
-                      type="color"
-                      value={cardColor}
-                      onChange={(e) => setCardColor(e.target.value)}
-                      style={{ width: 40, height: 36, padding: 0, border: "none", background: "transparent" }}
-                    />
-                  </div>
-                </div>
-                <div className="row right mt8">
-                  <button className="btn" onClick={saveCardSettings}>Salvar</button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Linha fatura (mês) + opções */}
-          <div className="row between mt16 wrap-gap">
-            <div className="col">
-              <label className="lbl">Fatura</label>
-              <div className="pill">
-                <button className="btn-sm" onClick={() => shiftMonth(-1)}>◀</button>
-                <span>{monthLabelShort(monthCursor)}</span>
-                <button className="btn-sm" onClick={() => shiftMonth(1)}>▶</button>
-              </div>
-            </div>
-            <div className="col right">
-              <label className="lbl">Opções</label>
-              <div className="row gap8">
-                <label className="chk">
-                  <input
-                    type="checkbox"
-                    checked={onlyPaid}
-                    onChange={(e) => setOnlyPaid(e.target.checked)}
-                  />
-                  Considerar apenas pagos
-                </label>
-                <button className="btn" onClick={exportCSV}>Exportar CSV (mês)</button>
-              </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginLeft: "auto",
+              }}
+            >
+              {cardAtivo && (
+                <>
+                  <span style={{ fontSize: 13, opacity: 0.7 }}>
+                    Fechamento: {String(cardAtivo.fechamento).padStart(2, "0")}
+                  </span>
+                  <span style={{ fontSize: 13, opacity: 0.7 }}>
+                    Vencimento: {String(cardAtivo.vencimento).padStart(2, "0")}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
-          {/* Tabela (com rolagem horizontal própria) */}
-          <div className="table-scroll">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th style={{ width: 110, textAlign: "center" }}>Data</th>
-                  <th style={{ textAlign: "left" }}>Descrição</th>
-                  <th style={{ width: 120, textAlign: "center" }}>Parcela(s)</th>
-                  <th style={{ width: 140, textAlign: "center" }}>Valor</th>
-                  <th style={{ width: 120, textAlign: "center" }}>Status</th>
-                  <th style={{ width: 200, textAlign: "center" }}>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {selected ? (
-                  monthOps.length ? (
-                    monthOps.map((o) => (
-                      <tr key={o.id}>
-                        <td style={{ textAlign: "center" }}>{fmtDateDDMMYY(o.dateISO)}</td>
-                        <td style={{ textAlign: "left" }}>{o.description}</td>
-                        <td style={{ textAlign: "center" }}>{o.parcels}</td>
-                        <td style={{ textAlign: "center" }}>{currency(o.amount)}</td>
-                        <td style={{ textAlign: "center" }}>
-                          <span className={`badge ${o.status === "pago" ? "ok" : "warn"}`}>
-                            {o.status === "pago" ? "Pago" : "Pendente"}
+          {/* Resumo do cartão ativo */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, minmax(120px, 1fr))",
+              gap: 12,
+              marginBottom: 12,
+            }}
+          >
+            <div className="card-resumo">
+              <div className="label">Limite</div>
+              <div className="valor">{currency(cardAtivo?.limite || 0)}</div>
+            </div>
+            <div className="card-resumo">
+              <div className="label">Usado</div>
+              <div className="valor">{currency(resumo.usado)}</div>
+            </div>
+            <div className="card-resumo">
+              <div className="label">Pendente</div>
+              <div className="valor">{currency(resumo.pendente)}</div>
+            </div>
+            <div className="card-resumo">
+              <div className="label">Disponível</div>
+              <div className="valor">{currency(resumo.disponivel)}</div>
+            </div>
+          </div>
+
+          {/* Tabela de fatura / lançamentos */}
+          <div className="painel">
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: 8,
+                alignItems: "center",
+              }}
+            >
+              <div style={{ fontWeight: 600 }}>Fatura</div>
+              <div style={{ fontSize: 13, opacity: 0.7 }}>
+                mês atual de {new Date().toLocaleString("pt-PT", { month: "long", year: "numeric" })}
+              </div>
+            </div>
+
+            <div style={{ overflowX: "auto" }}>
+              <table className="tabela">
+                <thead>
+                  <tr>
+                    <th style={{ width: 96 }}>Data</th>
+                    <th style={{ minWidth: 220, textAlign: "left" }}>Descrição</th>
+                    <th style={{ width: 96 }}>Parcelas</th>
+                    <th style={{ width: 110 }}>Valor</th>
+                    <th style={{ width: 110 }}>Status</th>
+                    <th style={{ width: 200 }}>Ações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!cardAtivo || cardAtivo.lancamentos.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: "center", padding: 18, opacity: 0.7 }}>
+                        Nenhum lançamento nesta fatura.
+                      </td>
+                    </tr>
+                  ) : (
+                    cardAtivo.lancamentos.map((l) => (
+                      <tr key={l.id}>
+                        <td>{ymdToDisplay(l.data)}</td>
+                        <td className="td-descricao">{l.descricao}</td>
+                        <td>{formatParcelas(l)}</td>
+                        <td>{currency(l.valor)}</td>
+                        <td>
+                          <span
+                            className={`pill ${
+                              l.status === "Pago" ? "pill-ok" : "pill-warn"
+                            }`}
+                          >
+                            {l.status}
                           </span>
                         </td>
-                        <td style={{ textAlign: "center" }}>
-                          <div className="row center gap8">
-                            <button className="btn-ghost" onClick={() => editOp(o.id)}>Editar</button>
-                            <button className="btn-ghost" onClick={() => togglePaid(o.id)}>
-                              {o.status === "pago" ? "Marcar pendente" : "Marcar pago"}
+                        <td>
+                          <div className="acoes">
+                            {l.status === "Pago" ? (
+                              <button
+                                className="btn-sec"
+                                onClick={() => marcarPago(l.id, false)}
+                              >
+                                Marcar pendente
+                              </button>
+                            ) : (
+                              <button
+                                className="btn-sec"
+                                onClick={() => marcarPago(l.id, true)}
+                              >
+                                Marcar pago
+                              </button>
+                            )}
+                            <button
+                              className="btn-danger"
+                              onClick={() => excluirLancamento(l.id)}
+                            >
+                              Excluir
                             </button>
-                            <button className="btn-danger" onClick={() => deleteOp(o.id)}>Excluir</button>
                           </div>
                         </td>
                       </tr>
                     ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} style={{ textAlign: "center", padding: 24, color: "#6b7280" }}>
-                        Nenhum lançamento nesta fatura.
-                      </td>
-                    </tr>
-                  )
-                ) : (
-                  <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: 24, color: "#6b7280" }}>
-                      Selecione um cartão para visualizar a fatura e lançar compras.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 
-        {/* COLUNA DIREITA — novo cartão + novo lançamento */}
-        <aside className="col-side">
+        {/* DIREITA */}
+        <aside className="cartoes-col-dir">
           {/* Novo cartão */}
-          <section className="card">
-            <h3 className="sec-title">Novo cartão</h3>
-            <div className="row gap8 wrap-gap">
-              <div className="col">
-                <label className="lbl">Nome do cartão</label>
-                <input
-                  className="inp"
-                  value={cardName}
-                  onChange={(e) => setCardName(e.target.value)}
-                  placeholder="Ex.: Visa XP"
-                />
-              </div>
-              <div className="col" style={{ maxWidth: 140 }}>
-                <label className="lbl">Limite</label>
-                <input
-                  className="inp"
-                  type="number"
-                  min="0"
-                  value={cardLimit}
-                  onChange={(e) => setCardLimit(e.target.value)}
-                />
-              </div>
-            </div>
+          <div className="painel">
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>Novo cartão</div>
 
-            <div className="row gap8 wrap-gap mt8">
-              <div className="col" style={{ width: 120 }}>
-                <label className="lbl">Fechamento</label>
+            <form onSubmit={salvarNovoCartao} className="form-grid">
+              <label>
+                Nome do cartão
+                <input
+                  type="text"
+                  value={novoCard.nome}
+                  onChange={(e) =>
+                    setNovoCard({ ...novoCard, nome: e.target.value })
+                  }
+                  placeholder="Ex.: Visa XP"
+                  required
+                />
+              </label>
+              <label>
+                Limite
                 <input
                   type="number"
-                  min={1}
-                  max={31}
-                  className="inp"
-                  value={cardClose}
-                  onChange={(e) => setCardClose(e.target.value)}
+                  value={novoCard.limite}
+                  onChange={(e) =>
+                    setNovoCard({
+                      ...novoCard,
+                      limite: Number(e.target.value || 0),
+                    })
+                  }
+                  min={0}
                 />
-              </div>
-              <div className="col" style={{ width: 120 }}>
-                <label className="lbl">Vencimento</label>
+              </label>
+              <label>
+                Fechamento
                 <input
                   type="number"
+                  value={novoCard.fechamento}
                   min={1}
-                  max={31}
-                  className="inp"
-                  value={cardDue}
-                  onChange={(e) => setCardDue(e.target.value)}
+                  max={28}
+                  onChange={(e) =>
+                    setNovoCard({
+                      ...novoCard,
+                      fechamento: Number(e.target.value || 1),
+                    })
+                  }
                 />
-              </div>
-              <div className="col" style={{ width: 120 }}>
-                <label className="lbl">Cor</label>
+              </label>
+              <label>
+                Vencimento
+                <input
+                  type="number"
+                  value={novoCard.vencimento}
+                  min={1}
+                  max={28}
+                  onChange={(e) =>
+                    setNovoCard({
+                      ...novoCard,
+                      vencimento: Number(e.target.value || 5),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Cor
                 <input
                   type="color"
-                  value={cardColor}
-                  onChange={(e) => setCardColor(e.target.value)}
-                  style={{ width: 40, height: 36, padding: 0, border: "none", background: "transparent" }}
+                  value={novoCard.cor}
+                  onChange={(e) =>
+                    setNovoCard({ ...novoCard, cor: e.target.value })
+                  }
                 />
+              </label>
+
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="submit" className="btn-primary">
+                  Salvar cartão
+                </button>
+                {cardAtivo && (
+                  <button
+                    type="button"
+                    className="btn-danger"
+                    onClick={() => excluirCartao(cardAtivo.id)}
+                  >
+                    Excluir cartão
+                  </button>
+                )}
               </div>
+            </form>
+          </div>
+
+          {/* Novo lançamento no cartão */}
+          <div className="painel">
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>
+              Novo lançamento no cartão
             </div>
 
-            <div className="row right mt12">
-              <button className="btn primary" onClick={addCard}>Salvar cartão</button>
-            </div>
-          </section>
-
-          {/* Nova compra */}
-          <section className="card">
-            <h3 className="sec-title">Novo lançamento no cartão</h3>
-            <div className="row gap8 wrap-gap">
-              <div className="col" style={{ width: 140 }}>
-                <label className="lbl">Data</label>
+            <form onSubmit={adicionarLancamento} className="form-grid">
+              <label>
+                Data
                 <input
                   type="date"
-                  className="inp"
-                  value={opDate}
-                  onChange={(e) => setOpDate(e.target.value)}
+                  value={novoLanc.data}
+                  onChange={(e) =>
+                    setNovoLanc({ ...novoLanc, data: e.target.value })
+                  }
                 />
-              </div>
-              <div className="col" style={{ width: 120 }}>
-                <label className="lbl">Parcela(s)</label>
+              </label>
+              <label style={{ gridColumn: "1 / -1" }}>
+                Descrição
                 <input
-                  type="number"
-                  min="1"
-                  className="inp"
-                  value={opParcels}
-                  onChange={(e) => setOpParcels(e.target.value)}
-                />
-              </div>
-              <div className="col" style={{ width: 160 }}>
-                <label className="lbl">Valor</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="inp"
-                  value={opAmount}
-                  onChange={(e) => setOpAmount(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="row mt8">
-              <div className="col" style={{ width: "100%" }}>
-                <label className="lbl">Descrição</label>
-                <input
-                  className="inp"
+                  type="text"
+                  value={novoLanc.descricao}
+                  onChange={(e) =>
+                    setNovoLanc({ ...novoLanc, descricao: e.target.value })
+                  }
                   placeholder="Ex.: Supermercado"
-                  value={opDesc}
-                  onChange={(e) => setOpDesc(e.target.value)}
+                  required
                 />
-              </div>
-            </div>
+              </label>
+              <label>
+                Parcelas
+                <input
+                  type="number"
+                  min={1}
+                  value={novoLanc.parcelas}
+                  onChange={(e) =>
+                    setNovoLanc({
+                      ...novoLanc,
+                      parcelas: Math.max(1, Number(e.target.value || 1)),
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Valor
+                <input
+                  type="number"
+                  step="0.01"
+                  value={novoLanc.valor}
+                  onChange={(e) =>
+                    setNovoLanc({ ...novoLanc, valor: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Status
+                <select
+                  value={novoLanc.status}
+                  onChange={(e) =>
+                    setNovoLanc({ ...novoLanc, status: e.target.value })
+                  }
+                >
+                  <option value="Pendente">Pendente</option>
+                  <option value="Pago">Pago</option>
+                </select>
+              </label>
 
-            <div className="row right mt12">
-              <button className="btn primary" onClick={addOp} disabled={!selected}>
+              <button type="submit" className="btn-primary">
                 Adicionar
               </button>
-            </div>
-          </section>
+            </form>
+          </div>
         </aside>
       </div>
-
-      <style jsx>{`
-        .wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
-        .title { font-size: 28px; font-weight: 800; margin: 8px 0 16px; }
-        .grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
-        .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; }
-        .row { display: flex; align-items: center; }
-        .between { justify-content: space-between; }
-        .right { justify-content: flex-end; }
-        .center { justify-content: center; }
-        .gap8 { gap: 8px; }
-        .wrap-gap { row-gap: 8px; column-gap: 8px; flex-wrap: wrap; }
-        .mt8 { margin-top: 8px; }
-        .mt12 { margin-top: 12px; }
-        .mt16 { margin-top: 16px; }
-        .col { display: flex; flex-direction: column; gap: 6px; }
-        .lbl { font-size: 12px; color: #6b7280; }
-        .inp {
-          height: 36px; padding: 6px 10px; border: 1px solid #e5e7eb; border-radius: 8px; outline: none;
-        }
-        .inp:focus { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(59,130,246,.15); }
-        .btn {
-          height: 36px; padding: 0 12px; border: 1px solid #e5e7eb; border-radius: 8px;
-          background: #f9fafb; cursor: pointer;
-        }
-        .btn:hover { background: #f3f4f6; }
-        .btn-sm { height: 28px; padding: 0 8px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; cursor: pointer; }
-        .btn-ghost { height: 30px; padding: 0 10px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; cursor: pointer; }
-        .btn-danger { height: 30px; padding: 0 10px; border: 1px solid #fecaca; border-radius: 8px; background: #fee2e2; color: #b91c1c; cursor: pointer; }
-        .btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-        .btn.primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
-        .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #374151; }
-        .pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid #e5e7eb; border-radius: 999px; background: #fff; }
-
-        .summary {
-          display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px;
-          border: 1px dashed #e5e7eb; border-radius: 10px; padding: 8px;
-        }
-
-        .table-scroll { margin-top: 12px; overflow-x: auto; }
-        .tbl { width: 100%; border-collapse: collapse; }
-        .tbl th, .tbl td { padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; white-space: nowrap; }
-        .tbl thead th { background: #f8fafc; color: #475569; }
-        .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 80px; height: 26px; padding: 0 8px; border-radius: 999px; font-weight: 600; font-size: 12px; }
-        .badge.ok { background: #ecfdf5; color: #059669; }
-        .badge.warn { background: #fff7ed; color: #c2410c; }
-
-        .col-side { display: grid; gap: 16px; }
-
-        @media (max-width: 1024px) {
-          .grid { grid-template-columns: 1fr; }
-        }
-      `}</style>
     </div>
   );
 }
+
+/* ---------------- estilos locais (escopados por classe) --------------- */
+/* Se preferir, pode mover para um CSS global. Mantive aqui junto para ficar
+   fechamento 100% do patch. */
