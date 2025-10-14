@@ -284,3 +284,24 @@ body {
 .theme-fab:hover { transform: translateY(-1px); }
 .theme-fab:active { transform: translateY(0); }
 .theme-fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.theme-fab {
+  position: fixed;
+  top: 16px;
+  right: 24px;
+  z-index: 40;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0,0,0,.18);
+  transition: transform .08s ease, background .2s ease, border-color .2s ease;
+}
+.theme-fab:hover { transform: translateY(-1px); }
+.theme-fab:active { transform: translateY(0); }
+.theme-fab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
