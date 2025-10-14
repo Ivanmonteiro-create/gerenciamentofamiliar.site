@@ -157,15 +157,29 @@ function ThemeToggle() {
   }
 
   return (
-    <button
-      className="btn-sm"
-      onClick={toggle}
-      aria-label="Alternar tema"
-      title={theme === "dark" ? "Tema escuro ativo — clicar para neutro" : "Tema neutro ativo — clicar para escuro"}
-      style={{ whiteSpace: "nowrap" }}
-    >
-      {theme === "dark" ? "🌞" : "🌙"}
-    </button>
+   <button
+  onClick={() => {
+    const newTheme = theme === "dark" ? "light" : "dark";
+    setTheme(newTheme);
+    document.documentElement.setAttribute("data-theme", newTheme);
+  }}
+  aria-label={
+    theme === "dark"
+      ? "Tema escuro ativo - clicar para modo claro"
+      : "Tema claro ativo - clicar para modo escuro"
+  }
+  style={{
+    position: "absolute",
+    top: "15px",
+    right: "20px",
+    background: "transparent",
+    border: "none",
+    fontSize: "22px",
+    cursor: "pointer",
+  }}
+>
+  {theme === "dark" ? "🌙" : "☀️"}
+</button>
   );
 }
 
