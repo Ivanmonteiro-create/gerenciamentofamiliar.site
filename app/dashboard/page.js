@@ -164,7 +164,7 @@ function ThemeToggle() {
       title={theme === "dark" ? "Tema escuro ativo — clicar para neutro" : "Tema neutro ativo — clicar para escuro"}
       style={{ whiteSpace: "nowrap" }}
     >
-      {theme === "dark" ? "🌞 Claro" : "🌙 Escuro"}
+      {theme === "dark" ? "🌞" : "🌙"}
     </button>
   );
 }
