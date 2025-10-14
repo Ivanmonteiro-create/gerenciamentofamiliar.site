@@ -155,22 +155,7 @@ function ThemeToggle() {
   }
 
   return (
-    <button
-      className="theme-toggle"
-      aria-label={theme === "dark" ? "Tema escuro ativo - clicar para modo claro" : "Tema claro ativo - clicar para modo escuro"}
-      onClick={toggle}
-      style={{
-        position: "absolute",
-        top: 20,
-        right: 20,
-        fontSize: "1.5rem",
-        background: "transparent",
-        border: "none",
-        cursor: "pointer",
-      }}
-    >
-      {theme === "dark" ? "☀️" : "🌙"}
-    </button>
+   
   );
 }
 
