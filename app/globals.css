@@ -166,3 +166,99 @@ body{ background: var(--gf-bg); color: var(--gf-text); }
 
 /* Se usar charts canvases, mantenha fundo transparente */
 canvas{ background: transparent; }
+/* ===== reset básico ===== */
+* { box-sizing: border-box; }
+html, body { padding: 0; margin: 0; }
+a { color: inherit; text-decoration: none; }
+
+/* ===== tema por data-theme no <html> ===== */
+:root {
+  --bg: #f5f6f8;              /* claro */
+  --card: #ffffff;
+  --card-border: #e7e9ee;
+  --text: #0e1420;
+  --muted: #6b7280;
+  --accent: #0ea5e9;
+  --good: #10b981;
+  --bad: #ef4444;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f1621;              /* escuro elegante */
+  --card: #1a2230;
+  --card-border: #273246;
+  --text: #e7edf7;
+  --muted: #9aa7bd;
+  --accent: #38bdf8;
+  --good: #34d399;
+  --bad: #f87171;
+}
+
+/* ===== layout base ===== */
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  line-height: 1.4;
+}
+
+/* col lateral que você já usa permanece como está.
+   Caso ela use cores próprias, mantenha; abaixo estilos genéricos de cartão. */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* títulos de página com o toggle ao lado */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 18px;
+}
+.page-header h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+/* ===== Botão de tema (pequeno e discreto) ===== */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: var(--card);
+  cursor: pointer;
+  user-select: none;
+  transition: transform .06s ease, background .2s ease, border-color .2s ease;
+}
+.theme-toggle:hover { transform: translateY(-1px); }
+.theme-toggle:active { transform: translateY(0); }
+.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.theme-toggle .icon {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  line-height: 0;
+}
+
+/* estados do rótulo (negrito sutil) */
+.theme-toggle .label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* helpers */
+.text-muted { color: var(--muted); }
+.text-good  { color: var(--good); }
+.text-bad   { color: var(--bad); }
+.text-accent{ color: var(--accent); }
