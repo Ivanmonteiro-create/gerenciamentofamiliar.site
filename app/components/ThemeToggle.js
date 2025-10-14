@@ -2,55 +2,55 @@
 
 import { useEffect, useState } from "react";
 
+/** Botão mínimo: só ícone. 🌞 claro | 🌙 escuro */
 export default function ThemeToggle() {
   const [theme, setTheme] = useState("light");
 
-  // carrega preferência salva ou preferencia do SO
   useEffect(() => {
-    const saved =
-      typeof window !== "undefined" && localStorage.getItem("gf-theme");
-    const initial =
-      saved ||
-      (window.matchMedia &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light");
+    const saved = typeof window !== "undefined" ? localStorage.getItem("gf-theme") : null;
+    if (saved === "light" || saved === "dark") {
+      setTheme(saved);
+      document.documentElement.setAttribute("data-theme", saved);
+      return;
+    }
+    const prefersDark =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    const initial = prefersDark ? "dark" : "light";
     setTheme(initial);
     document.documentElement.setAttribute("data-theme", initial);
   }, []);
 
-  const toggleTheme = () => {
-    const next = theme === "dark" ? "light" : "dark";
+  const toggle = () => {
+    const next = theme === "light" ? "dark" : "light";
     setTheme(next);
     document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem("gf-theme", next);
+    try { localStorage.setItem("gf-theme", next); } catch {}
   };
+
+  const isLight = theme === "light";
+
+  const Sun = (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+      <circle cx="12" cy="12" r="4.5" stroke="currentColor" strokeWidth="1.8" fill="none"/>
+      <path stroke="currentColor" strokeWidth="1.8" d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
+    </svg>
+  );
+  const Moon = (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+      <path d="M21 12.79A9 9 0 1111.21 3a7 7 0 109.79 9.79z" stroke="currentColor" strokeWidth="1.8" fill="none"/>
+    </svg>
+  );
 
   return (
     <button
-      aria-label="Alternar tema claro/escuro"
-      onClick={toggleTheme}
-      className="theme-toggle"
-      title={theme === "dark" ? "Tema escuro ativo — clicar para claro" : "Tema claro ativo — clicar para escuro"}
+      type="button"
+      onClick={toggle}
+      className="theme-fab"
+      aria-label={isLight ? "Ativar modo escuro" : "Ativar modo claro"}
+      title={isLight ? "Escuro" : "Claro"}
     >
-      {/* Ícone SVG puro: sol para claro, lua para escuro */}
-      {theme === "dark" ? (
-        // Lua
-        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M21 12.79A9 9 0 1111.21 3a7 7 0 109.79 9.79z"
-            fill="currentColor"
-          />
-        </svg>
-      ) : (
-        // Sol
-        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.42-1.42zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zM4.96 19.78l1.41 1.41 1.8-1.79-1.42-1.41-1.79 1.79zM20 11v2h3v-2h-3zm-2.34-7.95l-1.41 1.41 1.79 1.8 1.41-1.42-1.79-1.79zM17.24 19.16l1.8 1.79 1.41-1.41-1.79-1.8-1.42 1.42zM12 6a6 6 0 100 12 6 6 0 000-12zM11 1h2v3h-2V1z"
-            fill="currentColor"
-          />
-        </svg>
-      )}
+      {isLight ? Moon : Sun}
     </button>
   );
 }
