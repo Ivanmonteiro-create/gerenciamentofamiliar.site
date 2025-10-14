@@ -262,7 +262,6 @@ body {
 .text-good  { color: var(--good); }
 .text-bad   { color: var(--bad); }
 .text-accent{ color: var(--accent); }
-/* === FAB de tema, pequeno no canto superior direito do conteúdo === */
 .theme-fab {
   position: fixed;           /* aparece em todas as telas */
   top: 16px;
