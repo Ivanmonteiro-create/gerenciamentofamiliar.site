@@ -4,9 +4,9 @@ import React, { useMemo, useState } from "react";
 import PieChartComponent from "../components/PieChartComponent";
 import BarChartComponent from "../components/BarChartComponent";
 
-/* ===================== helpers ===================== */
-
-const STORAGE_KEYS = ["gf_transactions_v1", "transactions_v1"];
+/* =====================================================
+   FUNÇÕES AUXILIARES
+===================================================== */
 
 function tryParseNumber(v) {
   if (v == null) return 0;
@@ -29,17 +29,14 @@ function parseDateFlex(d) {
   if (d instanceof Date && !isNaN(d)) return d;
   const s = String(d).trim();
 
-  // ISO: 2025-10-14
   const iso = /^(\d{4})-(\d{2})-(\d{2})$/;
   const m1 = s.match(iso);
   if (m1) return new Date(Number(m1[1]), Number(m1[2]) - 1, Number(m1[3]));
 
-  // BR/EU: 14/10/2025
   const br = /^(\d{2})\/(\d{2})\/(\d{4})$/;
   const m2 = s.match(br);
   if (m2) return new Date(Number(m2[3]), Number(m2[2]) - 1, Number(m2[1]));
 
-  // fallback
   const dt = new Date(s);
   return isNaN(dt) ? null : dt;
 }
@@ -47,7 +44,7 @@ function parseDateFlex(d) {
 function sameMonth(a, ym) {
   const d = parseDateFlex(a);
   if (!d) return false;
-  const [Y, M] = ym.split("-").map(Number); // "YYYY-MM"
+  const [Y, M] = ym.split("-").map(Number);
   return d.getFullYear() === Y && d.getMonth() + 1 === M;
 }
 
@@ -65,50 +62,68 @@ function lastMonthsLabels(count = 6, locale = "pt-PT") {
   return out;
 }
 
+/* =====================================================
+   FUNÇÃO PRINCIPAL: VARRE TODAS AS CHAVES DO LOCALSTORAGE
+===================================================== */
+
 function loadTransactions() {
   if (typeof window === "undefined") return [];
-  for (const key of STORAGE_KEYS) {
+
+  const results = [];
+
+  for (const key of Object.keys(localStorage)) {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
-      const arr = JSON.parse(raw);
-      if (!Array.isArray(arr)) continue;
 
-      // normalizar cada item (aceita chaves PT/EN)
-      return arr.map((t) => {
-        const date = t.data ?? t.date ?? t.dt ?? null;
-        const type = t.tipo ?? t.type ?? "";
-        const category = t.categoria ?? t.category ?? t.cat ?? "Outros";
-        const status = t.status ?? t.situacao ?? t.sit ?? "";
-        const value = t.valor ?? t.value ?? 0;
+      const data = JSON.parse(raw);
+      if (!Array.isArray(data)) continue;
 
-        return {
-          date,
-          type,
-          category,
-          status,
-          value: tryParseNumber(value),
-        };
-      });
+      for (const t of data) {
+        const date =
+          t.data ?? t.date ?? t.dt ?? t.when ?? t.createdAt ?? null;
+        const type =
+          t.tipo ?? t.type ?? t.kind ?? "";
+        const category =
+          t.categoria ?? t.category ?? t.cat ?? "Outros";
+        const status =
+          t.status ?? t.situacao ?? t.sit ?? t.state ?? "";
+        const value =
+          t.valor ?? t.value ?? t.amount ?? 0;
+
+        const nValue = tryParseNumber(value);
+
+        if (date && (nValue !== 0 || type || category)) {
+          results.push({
+            date,
+            type,
+            category,
+            status,
+            value: nValue,
+          });
+        }
+      }
     } catch {
-      // tenta próxima chave
+      continue;
     }
   }
-  return [];
+
+  return results;
 }
 
-/* ===================== página ===================== */
+/* =====================================================
+   COMPONENTE PRINCIPAL
+===================================================== */
 
 export default function DashboardPage() {
-  const [onlyPaid, setOnlyPaid] = useState(false); // por padrão mostra tudo
+  const [onlyPaid, setOnlyPaid] = useState(false);
   const [monthRef, setMonthRef] = useState(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; // YYYY-MM
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   });
 
   const transactions = useMemo(() => loadTransactions(), []);
 
-  // aplica filtros
   const filtered = useMemo(() => {
     return transactions.filter((t) => {
       const okMonth = sameMonth(t.date, monthRef);
@@ -118,7 +133,6 @@ export default function DashboardPage() {
     });
   }, [transactions, monthRef, onlyPaid]);
 
-  // totais
   const totals = useMemo(() => {
     let entradas = 0,
       saidas = 0;
@@ -130,7 +144,6 @@ export default function DashboardPage() {
     return { entradas, saidas, saldo: entradas - saidas };
   }, [filtered]);
 
-  // donut: somente saídas por categoria
   const donut = useMemo(() => {
     const map = new Map();
     for (const t of filtered) {
@@ -144,7 +157,6 @@ export default function DashboardPage() {
     return { labels, values };
   }, [filtered]);
 
-  // evolução 6 meses (saldo) — respeita checkbox “apenas pagos”
   const evolution = useMemo(() => {
     const labels = lastMonthsLabels(6);
     const acc = new Map(labels.map((l) => [l, 0]));
