@@ -51,7 +51,6 @@ function PieChart({ data, size = 220, inner = 70, colors = [] }) {
   const cx = size / 2;
   const cy = size / 2;
   const r = size / 2 - 4;
-  let angle = -Math.PI / 2;
 
   function donutPath(cx, cy, rOuter, rInner, start, end) {
     const x1 = cx + rOuter * Math.cos(start);
@@ -134,7 +133,6 @@ function ThemeToggle() {
   const [theme, setTheme] = useState("neutral"); // neutral | dark
 
   useEffect(() => {
-    // carrega preferência salva
     const saved = typeof window !== "undefined" ? localStorage.getItem(THEME_KEY) : null;
     const initial = saved === "dark" ? "dark" : "neutral";
     setTheme(initial);
@@ -157,13 +155,22 @@ function ThemeToggle() {
   }
 
   return (
-<button
-  className="theme-toggle"
-  aria-label={theme === "dark" ? "Tema escuro ativo - clicar para neutro" : "Tema neutro ativo - clicar para escuro"}
-  onClick={toggleTheme}
-  style={{ position: "absolute", top: 20, right: 20 }}
->
-  {theme === "dark" ? "☀️" : "🌙"}</button>
+    <button
+      className="theme-toggle"
+      aria-label={theme === "dark" ? "Tema escuro ativo - clicar para modo claro" : "Tema claro ativo - clicar para modo escuro"}
+      onClick={toggle}
+      style={{
+        position: "absolute",
+        top: 20,
+        right: 20,
+        fontSize: "1.5rem",
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+      }}
+    >
+      {theme === "dark" ? "☀️" : "🌙"}
+    </button>
   );
 }
 
