@@ -4,28 +4,27 @@ export const metadata = {
   title: "Gerenciamento Financeiro",
 };
 
-import ThemeToggle from "./components/ThemeToggle";
-
 export default function RootLayout({ children }) {
   return (
-    <html lang="pt">
+    <html lang="pt" suppressHydrationWarning>
       <body>
-        <div className="shell">
-          <aside className="sidebar">
-            <div className="logo">GF</div>
+        <div style={{ display: "grid", gridTemplateColumns: "260px 1fr", minHeight: "100vh" }}>
+          {/* Sidebar existente */}
+          <aside style={{ background: "#0b1220", color: "#e7edf7", padding: "18px 14px" }}>
             <nav className="menu">
+              <div className="logo" style={{ fontWeight: 700, fontSize: 18, marginBottom: 14 }}>GF</div>
               <a href="/dashboard">📊 Dashboard</a>
               <a href="/despesas">💸 Despesas & Receitas</a>
               <a href="/cartoes">💳 Cartões</a>
-              <a href="/emprestimos">📑 Empréstimos</a>
+              <a href="/dividas">📉 Dívidas</a>
+              <a href="/emprestimos">💼 Empréstimos</a>
               <a href="/investimentos">📈 Investimentos</a>
               <a href="/configuracoes">⚙️ Configurações</a>
             </nav>
           </aside>
 
-          <main className="content">
-            {/* Botão de tema global (emoji antigo), canto superior direito */}
-            <ThemeToggle />
+          {/* Conteúdo */}
+          <main style={{ padding: "22px 22px 32px" }}>
             {children}
           </main>
         </div>
