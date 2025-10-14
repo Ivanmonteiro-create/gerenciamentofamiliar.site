@@ -1,4 +1,5 @@
 import "./globals.css";
+import ThemeToggle from "./components/ThemeToggle";
 
 export const metadata = {
   title: "Gerenciamento Financeiro",
@@ -24,7 +25,9 @@ export default function RootLayout({ children }) {
           </aside>
 
           {/* Conteúdo */}
-          <main style={{ padding: "22px 22px 32px" }}>
+          <main style={{ padding: "22px 22px 32px", position: "relative" }}>
+            {/* FAB de tema global (sol/lua) */}
+            <ThemeToggle />
             {children}
           </main>
         </div>
