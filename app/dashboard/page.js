@@ -154,11 +154,6 @@ function ThemeToggle() {
     }
   }
 
-  return (
-   
-  );
-}
-
 /** ====== Página ====== **/
 export default function Dashboard() {
   const [txs, setTxs] = useState([]);
