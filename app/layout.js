@@ -1,41 +1,27 @@
-"use client";
-
 import "./globals.css";
-import ThemeToggle from "../components/ThemeToggle";
+
+export const metadata = {
+  title: "Gerenciamento Financeiro",
+};
 
 export default function RootLayout({ children }) {
   return (
     <html lang="pt">
       <body>
-        <div className="layout-container">
-          {/* Cabeçalho fixo com botão de tema */}
-          <header
-            style={{
-              position: "fixed",
-              top: 0,
-              left: 0,
-              right: 0,
-              height: "48px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "flex-end",
-              padding: "0 1.2rem",
-              background: "transparent",
-              zIndex: 50,
-            }}
-          >
-            <ThemeToggle />
-          </header>
+        <div className="shell">
+          <aside className="sidebar">
+            <div className="logo">GF</div>
+            <nav className="menu">
+              <a href="/dashboard">📊 Dashboard</a>
+              <a href="/despesas">💸 Despesas & Receitas</a>
+              <a href="/cartoes">💳 Cartões</a>
+              <a href="/emprestimos">📑 Empréstimos</a>
+              <a href="/investimentos">📈 Investimentos</a>
+              <a href="/configuracoes">⚙️ Configurações</a>
+            </nav>
+          </aside>
 
-          {/* Conteúdo principal */}
-          <main
-            style={{
-              paddingTop: "56px", // espaçamento para não sobrepor o botão
-              minHeight: "100vh",
-              width: "100%",
-              overflowX: "hidden",
-            }}
-          >
+          <main className="content">
             {children}
           </main>
         </div>
