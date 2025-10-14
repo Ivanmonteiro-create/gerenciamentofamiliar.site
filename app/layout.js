@@ -1,6 +1,5 @@
 import "./globals.css";
 
-// metadados
 export const metadata = {
   title: "Gerenciamento Financeiro",
 };
@@ -25,7 +24,7 @@ export default function RootLayout({ children }) {
           </aside>
 
           <main className="content">
-            {/* Botão global de tema, fixo no canto superior direito */}
+            {/* Botão de tema global (emoji antigo), canto superior direito */}
             <ThemeToggle />
             {children}
           </main>
