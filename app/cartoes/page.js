@@ -3,11 +3,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 /* ============================
-   Helpers
+   Chaves de armazenamento
 ============================ */
 const STORAGE_CARDS = "gf_cards_v2";
 const STORAGE_OPS = "gf_card_ops_v2";
 
+/* ============================
+   Utilitários
+============================ */
 const currency = (n = 0) =>
   (isFinite(n) ? n : 0).toLocaleString("pt-PT", {
     style: "currency",
@@ -33,6 +36,8 @@ const monthLabelShort = (dateObj) => {
 
 const yyyymm = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 
+const newId = () => Math.random().toString(36).slice(2, 10);
+
 function load(key, fallback) {
   try {
     const raw = localStorage.getItem(key);
@@ -48,21 +53,12 @@ function save(key, data) {
 }
 
 /* ============================
-   Tipos
-============================ */
-/**
- * Cartão: { id, name, limit, color }
- * Operação: { id, cardId, dateISO, description, amount, parcels, status } 
- *  - status: "pago" | "pendente"
- */
-const newId = () => Math.random().toString(36).slice(2, 10);
-
-/* ============================
    Página
 ============================ */
 export default function CartoesPage() {
   const [cards, setCards] = useState([]);
   const [ops, setOps] = useState([]);
+
   const [selectedCard, setSelectedCard] = useState("");
   const [monthCursor, setMonthCursor] = useState(() => {
     const d = new Date();
@@ -75,6 +71,8 @@ export default function CartoesPage() {
   const [cardName, setCardName] = useState("");
   const [cardLimit, setCardLimit] = useState("");
   const [cardColor, setCardColor] = useState("#2563eb");
+  const [cardClose, setCardClose] = useState(1);      // dia de fechamento
+  const [cardDue, setCardDue] = useState(5);          // dia de vencimento
 
   // Form nova compra
   const [opDate, setOpDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -82,16 +80,16 @@ export default function CartoesPage() {
   const [opParcels, setOpParcels] = useState(1);
   const [opAmount, setOpAmount] = useState("");
 
-  // Carrega
+  // Carrega dados
   useEffect(() => {
     const c = load(STORAGE_CARDS, []);
     const o = load(STORAGE_OPS, []);
     setCards(c);
     setOps(o);
-    if (c.length && !selectedCard) setSelectedCard(c[0].id);
+    if (c.length) setSelectedCard(c[0].id);
   }, []);
 
-  // Salva
+  // Persiste
   useEffect(() => save(STORAGE_CARDS, cards), [cards]);
   useEffect(() => save(STORAGE_OPS, ops), [ops]);
 
@@ -102,7 +100,7 @@ export default function CartoesPage() {
     [cards, selectedCard]
   );
 
-  // Compras do cartão (mês atual)
+  // Lançamentos do mês/ cartão selecionado
   const monthOps = useMemo(() => {
     return ops
       .filter((o) => o.cardId === selectedCard)
@@ -111,13 +109,14 @@ export default function CartoesPage() {
       .sort((a, b) => new Date(b.dateISO) - new Date(a.dateISO));
   }, [ops, selectedCard, currentMonthKey, onlyPaid]);
 
+  // Totais do mês
   const totals = useMemo(() => {
-    const allThisMonth = ops
+    const list = ops
       .filter((o) => o.cardId === selectedCard)
       .filter((o) => yyyymm(new Date(o.dateISO)) === currentMonthKey);
 
-    const used = allThisMonth.reduce((s, o) => s + Math.max(0, +o.amount || 0), 0);
-    const pending = allThisMonth
+    const used = list.reduce((s, o) => s + Math.max(0, +o.amount || 0), 0);
+    const pending = list
       .filter((o) => o.status !== "pago")
       .reduce((s, o) => s + Math.max(0, +o.amount || 0), 0);
 
@@ -135,23 +134,32 @@ export default function CartoesPage() {
     const limit = Number(cardLimit || 0);
     if (!name || limit <= 0) return alert("Informe nome e limite do cartão.");
     const id = newId();
-    const next = [...cards, { id, name, limit, color: cardColor }];
+    const next = [
+      ...cards,
+      { id, name, limit, color: cardColor, closeDay: Number(cardClose), dueDay: Number(cardDue) },
+    ];
     setCards(next);
     setSelectedCard(id);
     setCardName("");
     setCardLimit("");
   };
 
+  const saveCardSettings = () => {
+    if (!selected) return;
+    setCards((arr) =>
+      arr.map((c) =>
+        c.id === selected.id
+          ? { ...c, color: cardColor, closeDay: Number(cardClose), dueDay: Number(cardDue) }
+          : c
+      )
+    );
+  };
+
   const deleteCard = (id) => {
-    if (!confirm("Excluir este cartão e suas compras do histórico do mês atual?")) return;
+    if (!confirm("Excluir este cartão e seus lançamentos?")) return;
     setCards((arr) => arr.filter((c) => c.id !== id));
     setOps((arr) => arr.filter((o) => o.cardId !== id));
     if (selectedCard === id) setSelectedCard("");
-  };
-
-  const saveCardColor = () => {
-    if (!selected) return;
-    setCards((arr) => arr.map((c) => (c.id === selected.id ? { ...c, color: cardColor } : c)));
   };
 
   const addOp = () => {
@@ -203,6 +211,8 @@ export default function CartoesPage() {
     const rows = [
       ["Cartão", selected.name],
       ["Mês", monthLabelShort(monthCursor)],
+      ["Fechamento", selected.closeDay ?? ""],
+      ["Vencimento", selected.dueDay ?? ""],
       [],
       ["Data", "Descrição", "Parcela(s)", "Valor", "Status"],
       ...monthOps.map((o) => [
@@ -218,7 +228,7 @@ export default function CartoesPage() {
       rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\n");
     const a = document.createElement("a");
     a.href = encodeURI(csv);
-    a.download = `cartao_${selected.name}_${currentMonthKey}.csv`;
+    a.download = `cartao_${selected.name}_${yyyymm(monthCursor)}.csv`;
     a.click();
   };
 
@@ -228,18 +238,26 @@ export default function CartoesPage() {
     setMonthCursor(d);
   };
 
+  // Sincroniza campos do cartão selecionado
+  useEffect(() => {
+    if (!selected) return;
+    setCardColor(selected.color || "#2563eb");
+    setCardClose(selected.closeDay ?? 1);
+    setCardDue(selected.dueDay ?? 5);
+  }, [selected]);
+
   /* ============================
      UI
   ============================ */
   return (
     <div className="wrap">
-      {/* Título */}
       <h1 className="title">Cartões de Crédito</h1>
 
       <div className="grid">
-        {/* Coluna 1: Detalhes do cartão + Fatura */}
+        {/* COLUNA ESQUERDA — cartão + fatura (layout “antigo”) */}
         <section className="card">
-          <div className="row between">
+          {/* Linha cartão + resumo + fechamento/vencimento */}
+          <div className="row between wrap-gap">
             <div className="col">
               <label className="lbl">Cartão</label>
               <select
@@ -258,19 +276,61 @@ export default function CartoesPage() {
 
             {selected && (
               <div className="col" style={{ minWidth: 240 }}>
-                <label className="lbl">Resumo</label>
+                <label className="lbl">Resumo do mês</label>
                 <div className="summary">
                   <div><small>Limite</small><b>{currency(totals.limit)}</b></div>
-                  <div><small>Usado (mês)</small><b>{currency(totals.used)}</b></div>
-                  <div><small>Pendente (mês)</small><b>{currency(totals.pending)}</b></div>
+                  <div><small>Usado</small><b>{currency(totals.used)}</b></div>
+                  <div><small>Pendente</small><b>{currency(totals.pending)}</b></div>
                   <div><small>Disponível</small><b>{currency(totals.available)}</b></div>
+                </div>
+              </div>
+            )}
+
+            {selected && (
+              <div className="col" style={{ minWidth: 260 }}>
+                <label className="lbl">Configuração do cartão</label>
+                <div className="row gap8">
+                  <div className="col" style={{ width: 110 }}>
+                    <label className="lbl">Fechamento</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      className="inp"
+                      value={cardClose}
+                      onChange={(e) => setCardClose(e.target.value)}
+                    />
+                  </div>
+                  <div className="col" style={{ width: 110 }}>
+                    <label className="lbl">Vencimento</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      className="inp"
+                      value={cardDue}
+                      onChange={(e) => setCardDue(e.target.value)}
+                    />
+                  </div>
+                  <div className="col" style={{ width: 90 }}>
+                    <label className="lbl">Cor</label>
+                    <input
+                      type="color"
+                      value={cardColor}
+                      onChange={(e) => setCardColor(e.target.value)}
+                      style={{ width: 40, height: 36, padding: 0, border: "none", background: "transparent" }}
+                    />
+                  </div>
+                </div>
+                <div className="row right mt8">
+                  <button className="btn" onClick={saveCardSettings}>Salvar</button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Fatura (mês) */}
-          <div className="row between mt16">
+          {/* Linha fatura (mês) + opções */}
+          <div className="row between mt16 wrap-gap">
             <div className="col">
               <label className="lbl">Fatura</label>
               <div className="pill">
@@ -295,17 +355,17 @@ export default function CartoesPage() {
             </div>
           </div>
 
-          {/* Tabela de lançamentos */}
-          <div className="table-wrap">
+          {/* Tabela (com rolagem horizontal própria) */}
+          <div className="table-scroll">
             <table className="tbl">
               <thead>
                 <tr>
                   <th style={{ width: 110, textAlign: "center" }}>Data</th>
                   <th style={{ textAlign: "left" }}>Descrição</th>
-                  <th style={{ width: 110, textAlign: "center" }}>Parcela(s)</th>
+                  <th style={{ width: 120, textAlign: "center" }}>Parcela(s)</th>
                   <th style={{ width: 140, textAlign: "center" }}>Valor</th>
                   <th style={{ width: 120, textAlign: "center" }}>Status</th>
-                  <th style={{ width: 180, textAlign: "center" }}>Ações</th>
+                  <th style={{ width: 200, textAlign: "center" }}>Ações</th>
                 </tr>
               </thead>
               <tbody>
@@ -318,23 +378,17 @@ export default function CartoesPage() {
                         <td style={{ textAlign: "center" }}>{o.parcels}</td>
                         <td style={{ textAlign: "center" }}>{currency(o.amount)}</td>
                         <td style={{ textAlign: "center" }}>
-                          <span
-                            className={`badge ${o.status === "pago" ? "ok" : "warn"}`}
-                          >
+                          <span className={`badge ${o.status === "pago" ? "ok" : "warn"}`}>
                             {o.status === "pago" ? "Pago" : "Pendente"}
                           </span>
                         </td>
                         <td style={{ textAlign: "center" }}>
                           <div className="row center gap8">
-                            <button className="btn-ghost" onClick={() => editOp(o.id)}>
-                              Editar
-                            </button>
+                            <button className="btn-ghost" onClick={() => editOp(o.id)}>Editar</button>
                             <button className="btn-ghost" onClick={() => togglePaid(o.id)}>
                               {o.status === "pago" ? "Marcar pendente" : "Marcar pago"}
                             </button>
-                            <button className="btn-danger" onClick={() => deleteOp(o.id)}>
-                              Excluir
-                            </button>
+                            <button className="btn-danger" onClick={() => deleteOp(o.id)}>Excluir</button>
                           </div>
                         </td>
                       </tr>
@@ -358,12 +412,12 @@ export default function CartoesPage() {
           </div>
         </section>
 
-        {/* Coluna 2: novo cartão + novo lançamento */}
+        {/* COLUNA DIREITA — novo cartão + novo lançamento */}
         <aside className="col-side">
           {/* Novo cartão */}
           <section className="card">
             <h3 className="sec-title">Novo cartão</h3>
-            <div className="row gap8">
+            <div className="row gap8 wrap-gap">
               <div className="col">
                 <label className="lbl">Nome do cartão</label>
                 <input
@@ -381,44 +435,54 @@ export default function CartoesPage() {
                   min="0"
                   value={cardLimit}
                   onChange={(e) => setCardLimit(e.target.value)}
-                  placeholder="0"
                 />
               </div>
             </div>
-            <div className="row between mt12">
-              <div className="row center gap8">
-                <label className="lbl" style={{ margin: 0 }}>Cor</label>
+
+            <div className="row gap8 wrap-gap mt8">
+              <div className="col" style={{ width: 120 }}>
+                <label className="lbl">Fechamento</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  className="inp"
+                  value={cardClose}
+                  onChange={(e) => setCardClose(e.target.value)}
+                />
+              </div>
+              <div className="col" style={{ width: 120 }}>
+                <label className="lbl">Vencimento</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  className="inp"
+                  value={cardDue}
+                  onChange={(e) => setCardDue(e.target.value)}
+                />
+              </div>
+              <div className="col" style={{ width: 120 }}>
+                <label className="lbl">Cor</label>
                 <input
                   type="color"
                   value={cardColor}
                   onChange={(e) => setCardColor(e.target.value)}
-                  style={{ width: 40, height: 28, padding: 0, border: "none", background: "transparent" }}
+                  style={{ width: 40, height: 36, padding: 0, border: "none", background: "transparent" }}
                 />
               </div>
-              <div className="row gap8">
-                {selected && (
-                  <button className="btn" onClick={saveCardColor}>Salvar cor</button>
-                )}
-                <button className="btn primary" onClick={addCard}>Salvar cartão</button>
-              </div>
             </div>
-            {selected && (
-              <div className="row between mt8">
-                <small style={{ color: "#6b7280" }}>
-                  Ativo: <b style={{ color: selected.color }}>{selected.name}</b>
-                </small>
-                <button className="btn-danger" onClick={() => deleteCard(selected.id)}>
-                  Excluir cartão
-                </button>
-              </div>
-            )}
+
+            <div className="row right mt12">
+              <button className="btn primary" onClick={addCard}>Salvar cartão</button>
+            </div>
           </section>
 
-          {/* Novo lançamento no cartão */}
+          {/* Nova compra */}
           <section className="card">
             <h3 className="sec-title">Novo lançamento no cartão</h3>
-            <div className="row gap8">
-              <div className="col" style={{ maxWidth: 140 }}>
+            <div className="row gap8 wrap-gap">
+              <div className="col" style={{ width: 140 }}>
                 <label className="lbl">Data</label>
                 <input
                   type="date"
@@ -427,7 +491,7 @@ export default function CartoesPage() {
                   onChange={(e) => setOpDate(e.target.value)}
                 />
               </div>
-              <div className="col" style={{ maxWidth: 120 }}>
+              <div className="col" style={{ width: 120 }}>
                 <label className="lbl">Parcela(s)</label>
                 <input
                   type="number"
@@ -437,7 +501,7 @@ export default function CartoesPage() {
                   onChange={(e) => setOpParcels(e.target.value)}
                 />
               </div>
-              <div className="col" style={{ maxWidth: 160 }}>
+              <div className="col" style={{ width: 160 }}>
                 <label className="lbl">Valor</label>
                 <input
                   type="number"
@@ -449,8 +513,9 @@ export default function CartoesPage() {
                 />
               </div>
             </div>
-            <div className="row gap8 mt8">
-              <div className="col">
+
+            <div className="row mt8">
+              <div className="col" style={{ width: "100%" }}>
                 <label className="lbl">Descrição</label>
                 <input
                   className="inp"
@@ -460,6 +525,7 @@ export default function CartoesPage() {
                 />
               </div>
             </div>
+
             <div className="row right mt12">
               <button className="btn primary" onClick={addOp} disabled={!selected}>
                 Adicionar
@@ -474,20 +540,19 @@ export default function CartoesPage() {
         .title { font-size: 28px; font-weight: 800; margin: 8px 0 16px; }
         .grid { display: grid; grid-template-columns: 1fr 340px; gap: 16px; }
         .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; }
-        .sec-title { margin: 0 0 8px; font-size: 16px; font-weight: 700; }
         .row { display: flex; align-items: center; }
         .between { justify-content: space-between; }
-        .center { justify-content: center; }
         .right { justify-content: flex-end; }
+        .center { justify-content: center; }
         .gap8 { gap: 8px; }
+        .wrap-gap { row-gap: 8px; column-gap: 8px; flex-wrap: wrap; }
         .mt8 { margin-top: 8px; }
         .mt12 { margin-top: 12px; }
         .mt16 { margin-top: 16px; }
         .col { display: flex; flex-direction: column; gap: 6px; }
         .lbl { font-size: 12px; color: #6b7280; }
         .inp {
-          height: 36px; padding: 6px 10px; border: 1px solid #e5e7eb; border-radius: 8px;
-          outline: none;
+          height: 36px; padding: 6px 10px; border: 1px solid #e5e7eb; border-radius: 8px; outline: none;
         }
         .inp:focus { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(59,130,246,.15); }
         .btn {
@@ -502,18 +567,22 @@ export default function CartoesPage() {
         .btn.primary:hover { background: #1d4ed8; border-color: #1d4ed8; }
         .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #374151; }
         .pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid #e5e7eb; border-radius: 999px; background: #fff; }
+
         .summary {
           display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px;
           border: 1px dashed #e5e7eb; border-radius: 10px; padding: 8px;
         }
-        .table-wrap { margin-top: 12px; overflow-x: auto; }
+
+        .table-scroll { margin-top: 12px; overflow-x: auto; }
         .tbl { width: 100%; border-collapse: collapse; }
-        .tbl th, .tbl td { padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
+        .tbl th, .tbl td { padding: 10px; border-bottom: 1px solid #f1f5f9; font-size: 14px; white-space: nowrap; }
         .tbl thead th { background: #f8fafc; color: #475569; }
         .badge { display: inline-flex; align-items: center; justify-content: center; min-width: 80px; height: 26px; padding: 0 8px; border-radius: 999px; font-weight: 600; font-size: 12px; }
         .badge.ok { background: #ecfdf5; color: #059669; }
         .badge.warn { background: #fff7ed; color: #c2410c; }
+
         .col-side { display: grid; gap: 16px; }
+
         @media (max-width: 1024px) {
           .grid { grid-template-columns: 1fr; }
         }
