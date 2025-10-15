@@ -1,457 +1,350 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-/** ======= LS KEYS ======= */
-const LS_ASSETS = "gf_invest_assets_v1";
+/** ================== STORAGE KEYS ================== */
+const KEY_ASSETS = "gf_invest_assets_v2";
 
-/** ======= UTILS ======= */
-const fmt = (n) =>
-  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function uid() {
-  return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);
+/** ================== HELPERS ================== */
+function loadLS(key, fallback) {
+  try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; } catch { return fallback; }
+}
+function saveLS(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+function uid() { return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-6); }
+function fmt(n) { return Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" }); }
+function pct(a, b) {
+  const base = Number(b || 0);
+  if (!base) return "0.00%";
+  return ((Number(a || 0) / base) * 100).toFixed(2) + "%";
 }
 
-function lsGet(key, fallback) {
-  try {
-    const raw =
-      typeof window !== "undefined" ? localStorage.getItem(key) : null;
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function lsSet(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
-}
-
-/** ======= COINGECKO HELPERS (sem API key) =======
- * Estratégia:
- *  1) /search?query=SYMBOL  -> pega o primeiro match “coins[]”
- *  2) fallback: /coins/list  -> procura symbol exato (case-insensitive)
- *  3) com o id => /simple/price?ids=ID&vs_currencies=eur
+/** ================== TIPOS DE ATIVO ==================
+ * "crypto"  -> preço ao vivo via CoinGecko (EUR)
+ * "stock"   -> preço manual (por enquanto)
+ * "other"   -> preço manual
  */
-async function resolveIdFromSymbol(symbol) {
-  const sym = String(symbol || "").trim().toLowerCase();
-  if (!sym) return null;
+const TYPE_LABEL = { crypto: "Cripto", stock: "Ação", other: "Outro" };
 
-  // 1) tenta /search
-  try {
-    const r = await fetch(
-      `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(sym)}`,
-      { cache: "no-store" }
-    );
-    if (r.ok) {
-      const j = await r.json();
-      const hit = (j?.coins || []).find(
-        (c) =>
-          c.symbol?.toLowerCase() === sym ||
-          c.id?.toLowerCase() === sym ||
-          c.name?.toLowerCase() === sym
-      );
-      if (hit?.id) return { id: hit.id, name: hit.name, symbol: hit.symbol };
-    }
-  } catch {}
-
-  // 2) fallback /coins/list (pode ser pesado; usa pequena demora se cair aqui)
-  try {
-    const r = await fetch("https://api.coingecko.com/api/v3/coins/list", {
-      cache: "force-cache",
-    });
-    if (r.ok) {
-      const list = await r.json();
-      const exact =
-        list.find((c) => c.symbol?.toLowerCase() === sym) ||
-        list.find((c) => c.id?.toLowerCase() === sym) ||
-        list.find((c) => c.name?.toLowerCase() === sym);
-      if (exact) return { id: exact.id, name: exact.name, symbol: exact.symbol };
-    }
-  } catch {}
-
-  return null;
-}
-
-async function fetchPriceEUR(coinId) {
-  if (!coinId) return null;
-  try {
-    const r = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
-        coinId
-      )}&vs_currencies=eur`,
-      { cache: "no-store" }
-    );
-    if (!r.ok) return null;
-    const j = await r.json();
-    const val = j?.[coinId]?.eur;
-    return typeof val === "number" ? val : null;
-  } catch {
-    return null;
-  }
-}
-
-/** ======= COMPONENT ======= */
+/** ================== COMPONENTE ================== */
 export default function InvestimentosPage() {
-  /** assets: [{ id, symbol, cgId, name, qty, avg, color }] */
   const [assets, setAssets] = useState([]);
-  /** prices: map cgId -> priceEUR */
-  const [prices, setPrices] = useState({});
-  /** UI */
+  const [loadingPrices, setLoadingPrices] = useState(false);
+
+  // formulário de novo ativo
   const [form, setForm] = useState({
+    type: "crypto",
     symbol: "",
+    name: "",
     qty: "",
-    avg: "",
+    avgPrice: "",
+    manualPrice: "", // usado para stock/other
     color: "#22c55e",
   });
-  const [loading, setLoading] = useState(false);
-  const timerRef = useRef(null);
-  const visibleRef = useRef(true);
 
-  /** load LS */
+  // cache de mapeamento CoinGecko (SYM -> id)
+  const [cgMap, setCgMap] = useState(() => loadLS("gf_cg_map_v1", {}));
+
+  /** carregar */
+  useEffect(() => { setAssets(loadLS(KEY_ASSETS, [])); }, []);
+  useEffect(() => { saveLS(KEY_ASSETS, assets); }, [assets]);
+  useEffect(() => { saveLS("gf_cg_map_v1", cgMap); }, [cgMap]);
+
+  /** preços ao vivo para CRIPTO */
+  const cryptoSymbols = useMemo(
+    () => Array.from(new Set(assets.filter(a => a.type === "crypto").map(a => a.symbol.trim().toUpperCase()).filter(Boolean))),
+    [assets]
+  );
+
   useEffect(() => {
-    setAssets(lsGet(LS_ASSETS, []));
-  }, []);
+    let cancelled = false;
+    async function updatePrices() {
+      if (cryptoSymbols.length === 0) return;
+      setLoadingPrices(true);
+      try {
+        const knownMap = {};
+        for (const s of cryptoSymbols) if (cgMap[s]) knownMap[s] = cgMap[s];
+        const res = await fetch("/api/prices", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ type: "crypto", symbols: cryptoSymbols, knownMap }),
+        }).then(r => r.json());
 
-  /** auto refresh preços (a cada 60s quando aba ativa) */
-  useEffect(() => {
-    const handler = () => {
-      visibleRef.current = document.visibilityState === "visible";
-    };
-    document.addEventListener("visibilitychange", handler);
+        if (!res?.ok) throw new Error(res?.error || "Erro ao buscar preços");
 
-    let stop = false;
-    const loop = async () => {
-      while (!stop) {
-        if (visibleRef.current) {
-          await refreshAllPrices();
+        const newMap = { ...cgMap };
+        // guardar ids descobertos
+        const resolved = res.resolved || {};
+        Object.keys(resolved).forEach(sym => {
+          const info = resolved[sym];
+          if (info?.id) newMap[sym] = info.id;
+        });
+        // aplicar preços aos ativos
+        const priceBySym = res.data || {};
+        if (!cancelled) {
+          setCgMap(newMap);
+          setAssets(prev =>
+            prev.map(a => {
+              if (a.type !== "crypto") return a;
+              const sym = (a.symbol || "").toUpperCase();
+              const live = priceBySym[sym]?.eur;
+              return { ...a, livePrice: typeof live === "number" ? live : null };
+            })
+          );
         }
-        await sleep(60000);
+      } catch {
+        // falhou: apenas ignora (fica manual/sem preço)
+      } finally {
+        if (!cancelled) setLoadingPrices(false);
       }
-    };
-    loop();
+    }
+    updatePrices();
+    // atualiza a cada 60s quando estiver na página
+    const t = setInterval(updatePrices, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [cryptoSymbols]); // eslint-disable-line
 
-    return () => {
-      stop = true;
-      document.removeEventListener("visibilitychange", handler);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assets.map((a) => a.cgId).join(",")]);
-
-  /** primeira carga de preços logo que houver assets */
-  useEffect(() => {
-    refreshAllPrices();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assets.map((a) => a.cgId).join(",")]);
-
-  /** cálculos */
-  const enriched = useMemo(() => {
-    return assets.map((a) => {
-      const px = prices[a.cgId] ?? null;
+  /** totais */
+  const totals = useMemo(() => {
+    let cost = 0, now = 0;
+    for (const a of assets) {
       const qty = Number(a.qty || 0);
-      const avg = Number(a.avg || 0);
-      const current = px ?? 0;
-      const currentVal = qty * current;
-      const cost = qty * avg;
-      const pl = currentVal - cost;
-      const plPct = cost > 0 ? (pl / cost) * 100 : 0;
-      return {
-        ...a,
-        current,
-        currentVal,
-        cost,
-        pl,
-        plPct,
-      };
-    });
-  }, [assets, prices]);
+      const avg = Number(a.avgPrice || 0);
+      const invested = qty * avg;
+      cost += invested;
 
-  const totalCost = useMemo(
-    () => enriched.reduce((s, it) => s + it.cost, 0),
-    [enriched]
-  );
-  const totalVal = useMemo(
-    () => enriched.reduce((s, it) => s + it.currentVal, 0),
-    [enriched]
-  );
-  const totalPL = totalVal - totalCost;
-  const totalPLPct = totalCost > 0 ? (totalPL / totalCost) * 100 : 0;
+      let current = 0;
+      if (a.type === "crypto") {
+        const live = Number(a.livePrice || 0);
+        current = qty * (live || 0);
+      } else {
+        const price = Number(a.manualPrice || 0);
+        current = qty * price;
+      }
+      now += current;
+    }
+    return { cost, now, pnl: now - cost, pnlPct: pct(now - cost, cost) };
+  }, [assets]);
 
-  /** actions */
-  async function addAsset(e) {
+  /** ações */
+  function addAsset(e) {
     e.preventDefault();
-    const symbol = form.symbol.trim();
-    if (!symbol) {
-      alert("Informe o símbolo (ex.: BTC, ETH, ORAI, WLD…).");
-      return;
-    }
+    const symbol = form.symbol.trim().toUpperCase();
+    if (!symbol) { alert("Informe o símbolo."); return; }
+    const qty = Number(form.qty || 0);
+    const avg = Number(form.avgPrice || 0);
+    const manual = Number(form.manualPrice || 0);
 
-    setLoading(true);
-    const resolved = await resolveIdFromSymbol(symbol);
-    setLoading(false);
-
-    if (!resolved?.id) {
-      alert(
-        "Não consegui encontrar esse símbolo na CoinGecko. Verifique se está correto."
-      );
-      return;
-    }
-
-    const next = [
-      ...assets,
-      {
-        id: uid(),
-        symbol: symbol.toUpperCase(),
-        cgId: resolved.id,
-        name: resolved.name || symbol.toUpperCase(),
-        qty: Number(form.qty || 0),
-        avg: Number(form.avg || 0),
-        color: form.color || "#22c55e",
-        createdAt: Date.now(),
-      },
-    ];
-    setAssets(next);
-    lsSet(LS_ASSETS, next);
-    setForm({ symbol: "", qty: "", avg: "", color: "#22c55e" });
+    const newA = {
+      id: uid(),
+      type: form.type,
+      symbol,
+      name: form.name.trim(),
+      qty,
+      avgPrice: avg,
+      manualPrice: (form.type === "crypto") ? undefined : manual,
+      color: form.color || "#22c55e",
+      livePrice: null, // para cripto, será preenchido quando carregar
+      createdAt: Date.now(),
+    };
+    setAssets(a => [newA, ...a]);
+    setForm({ type: "crypto", symbol: "", name: "", qty: "", avgPrice: "", manualPrice: "", color: "#22c55e" });
   }
 
   function removeAsset(id) {
-    const next = assets.filter((a) => a.id !== id);
-    setAssets(next);
-    lsSet(LS_ASSETS, next);
+    if (!confirm("Excluir este ativo?")) return;
+    setAssets(a => a.filter(x => x.id !== id));
   }
 
-  async function refreshAllPrices() {
-    if (!assets.length) return;
-    // busca em lotes pequenos para evitar rate limit
-    const ids = [...new Set(assets.map((a) => a.cgId).filter(Boolean))];
-    const newMap = { ...prices };
-    for (const id of ids) {
-      const val = await fetchPriceEUR(id);
-      if (typeof val === "number") newMap[id] = val;
-      // pequena pausa para ser “amigável” com a API
-      await sleep(250);
-    }
-    setPrices(newMap);
+  /** UI util */
+  function rowNowValue(a) {
+    const qty = Number(a.qty || 0);
+    const price = (a.type === "crypto") ? Number(a.livePrice || 0) : Number(a.manualPrice || 0);
+    return qty * price;
   }
+  function rowCost(a) { return Number(a.qty || 0) * Number(a.avgPrice || 0); }
 
-  function exportCSV() {
-    const rows = enriched.map((a) => ({
-      Ativo: a.symbol,
-      Nome: a.name,
-      Quantidade: a.qty,
-      "Preço médio": a.avg,
-      "Preço atual (EUR)": a.current,
-      "Valor atual (EUR)": a.currentVal,
-      "Custo (EUR)": a.cost,
-      "P/L (EUR)": a.pl,
-      "P/L (%)": `${a.plPct.toFixed(2)}%`,
-    }));
-    const header = Object.keys(rows[0] || {});
-    const lines = [
-      header.join(";"),
-      ...rows.map((r) =>
-        header.map((h) => String(r[h]).replaceAll(";", ",")).join(";")
-      ),
-    ].join("\n");
-
-    const blob = new Blob([lines], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "carteira.csv";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
-  /** UI */
+  /** ================== RENDER ================== */
   return (
     <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12 }}>
-        Investimentos
-      </h1>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 12 }}>Investimentos</h1>
 
-      {/* resumo */}
-      <div style={grid2}>
-        <div className="card" style={card}>
-          <div style={pillRow}>
-            <Pill label="Valor total" value={fmt(totalVal)} />
-            <Pill label="Custo total" value={fmt(totalCost)} />
-            <Pill
-              label="P/L não realizado"
-              value={`${fmt(totalPL)} (${totalPLPct.toFixed(2)}%)`}
-              tone={totalPL >= 0 ? "up" : "down"}
-            />
+      {/* KPIs topo */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 14 }}>
+        <KPI label="Valor atual" value={fmt(totals.now)} />
+        <KPI label="Custo total" value={fmt(totals.cost)} />
+        <KPI label="P/L não realizado" value={`${fmt(totals.pnl)} (${totals.pnlPct})`} tone={totals.pnl >= 0 ? "up" : "down"} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr .9fr", gap: 14 }}>
+        {/* carteira */}
+        <div style={cardBox}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <b>Carteira</b>
+            {loadingPrices && <span style={{ fontSize: 12, opacity: .7 }}>Atualizando preços...</span>}
           </div>
-
-          {/* tabela carteira */}
-          <div style={{ marginTop: 14, overflowX: "auto" }}>
+          <div style={{ overflowX: "auto" }}>
             <table style={table}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: 90 }}>Ativo</th>
+                  <th style={{ minWidth: 110 }}>Ativo</th>
+                  <th>Tipo</th>
                   <th>Qtd</th>
-                  <th>Preço méd.</th>
-                  <th>Preço atual</th>
+                  <th>Preço Médio</th>
+                  <th>Preço Atual</th>
                   <th>Valor atual</th>
                   <th>P/L</th>
-                  <th style={{ width: 90 }}>Ações</th>
+                  <th>Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {enriched.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} style={{ textAlign: "center", padding: 18, opacity: .7 }}>
-                      Adicione seus criptoativos ao lado para ver a carteira.
-                    </td>
-                  </tr>
+                {assets.length === 0 ? (
+                  <tr><td colSpan={8} style={{ padding: 14, textAlign: "center", opacity: .6 }}>Nenhum ativo.</td></tr>
                 ) : (
-                  enriched.map((a) => (
-                    <tr key={a.id}>
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span
-                            aria-hidden
-                            style={{
-                              width: 10,
-                              height: 10,
-                              borderRadius: 999,
-                              background: a.color || "#22c55e",
-                              outline: "1px solid rgba(0,0,0,.06)",
-                            }}
-                          />
-                          <div style={{ lineHeight: 1.2 }}>
-                            <div style={{ fontWeight: 600 }}>{a.symbol}</div>
-                            <small style={{ opacity: .7 }}>{a.name}</small>
+                  assets.map(a => {
+                    const cost = rowCost(a);
+                    const nowVal = rowNowValue(a);
+                    const pl = nowVal - cost;
+                    const plPct = pct(pl, cost);
+                    const priceAtual = (a.type === "crypto")
+                      ? (a.livePrice != null ? fmt(a.livePrice) : "—")
+                      : fmt(a.manualPrice || 0);
+
+                    return (
+                      <tr key={a.id}>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ width: 10, height: 10, borderRadius: 999, background: a.color }} />
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{a.symbol}</div>
+                              {a.name ? <div style={{ fontSize: 12, opacity: .7 }}>{a.name}</div> : null}
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td>{a.qty}</td>
-                      <td>{fmt(a.avg)}</td>
-                      <td>{a.current ? fmt(a.current) : "—"}</td>
-                      <td>{fmt(a.currentVal)}</td>
-                      <td>
-                        <span
-                          style={{
-                            padding: "2px 8px",
-                            borderRadius: 999,
-                            background: a.pl >= 0 ? "#dcfce7" : "#fee2e2",
-                            color: a.pl >= 0 ? "#166534" : "#991b1b",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {fmt(a.pl)} ({a.plPct.toFixed(2)}%)
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", justifyContent: "center" }}>
-                          <button style={btnDanger} onClick={() => removeAsset(a.id)}>
-                            Excluir
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td>{TYPE_LABEL[a.type] || a.type}</td>
+                        <td>{Number(a.qty || 0).toLocaleString("pt-PT")}</td>
+                        <td>{fmt(a.avgPrice || 0)}</td>
+                        <td>{priceAtual}</td>
+                        <td>{fmt(nowVal)}</td>
+                        <td>
+                          <Badge tone={pl >= 0 ? "up" : "down"}>
+                            {fmt(pl)} ({plPct})
+                          </Badge>
+                        </td>
+                        <td>
+                          <button style={btnDanger} onClick={() => removeAsset(a.id)}>Excluir</button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
-
-          <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
-            <button style={btnSoft} onClick={exportCSV}>
-              Exportar CSV (filtro)
-            </button>
-          </div>
         </div>
 
-        {/* formulário */}
-        <form onSubmit={addAsset} className="card" style={card}>
+        {/* adicionar ativo */}
+        <form onSubmit={addAsset} style={cardBox}>
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Adicionar ativo</div>
-          <div style={{ display: "grid", gap: 10 }}>
+          <div style={{ display: "grid", gap: 8 }}>
+            {/* Tipo */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+              <label style={{ fontSize: 12, opacity: .8 }}>Tipo</label>
+              <div style={{ display: "flex", gap: 10 }}>
+                {["crypto", "stock", "other"].map(t => (
+                  <label key={t} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
+                    <input
+                      type="radio"
+                      name="type"
+                      checked={form.type === t}
+                      onChange={() => setForm(p => ({ ...p, type: t }))}
+                    />
+                    {TYPE_LABEL[t]}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Símbolo e Nome (opcional) */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label className="lbl">Símbolo (ex.: BTC, ETH, ORAI, WLD)</label>
-                <input
-                  value={form.symbol}
-                  onChange={(e) => setForm((p) => ({ ...p, symbol: e.target.value }))}
-                  placeholder="Símbolo"
-                  style={input}
-                  required
-                />
-              </div>
-              <div>
-                <label className="lbl">Quantidade</label>
-                <input
-                  value={form.qty}
-                  onChange={(e) => setForm((p) => ({ ...p, qty: e.target.value }))}
-                  placeholder="Quantidade"
-                  inputMode="decimal"
-                  style={input}
-                  required
-                />
-              </div>
+              <input
+                placeholder={form.type === "crypto" ? "Símbolo (ex.: BTC)" : "Símbolo/Ticker"}
+                value={form.symbol}
+                onChange={e => setForm(p => ({ ...p, symbol: e.target.value }))}
+                style={input}
+                required
+              />
+              <input
+                placeholder="Nome (opcional)"
+                value={form.name}
+                onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                style={input}
+              />
             </div>
 
+            {/* Quantidade e Preço Médio */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <div>
-                <label className="lbl">Preço médio (EUR)</label>
-                <input
-                  value={form.avg}
-                  onChange={(e) => setForm((p) => ({ ...p, avg: e.target.value }))}
-                  placeholder="Preço médio em EUR"
-                  inputMode="decimal"
-                  style={input}
-                  required
-                />
-              </div>
-
-              <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
-                <div style={{ display: "grid" }}>
-                  <label className="lbl">Cor</label>
-                  <input
-                    type="color"
-                    value={form.color}
-                    onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
-                    style={{ height: 36, width: 60, padding: 0, border: "1px solid #e5e7eb", borderRadius: 8 }}
-                  />
-                </div>
-              </div>
+              <input
+                placeholder="Quantidade"
+                value={form.qty}
+                onChange={e => setForm(p => ({ ...p, qty: e.target.value }))}
+                style={input}
+                inputMode="decimal"
+                required
+              />
+              <input
+                placeholder="Preço médio (€)"
+                value={form.avgPrice}
+                onChange={e => setForm(p => ({ ...p, avgPrice: e.target.value }))}
+                style={input}
+                inputMode="decimal"
+                required
+              />
             </div>
 
-            <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
-              <button type="submit" style={btnPrimary} disabled={loading}>
-                {loading ? "Adicionando…" : "Salvar"}
-              </button>
+            {/* Preço manual (apenas para ações/outros) */}
+            {form.type !== "crypto" && (
+              <input
+                placeholder="Preço atual (€) — manual"
+                value={form.manualPrice}
+                onChange={e => setForm(p => ({ ...p, manualPrice: e.target.value }))}
+                style={input}
+                inputMode="decimal"
+              />
+            )}
+
+            {/* Cor */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+              <span style={{ fontSize: 12, opacity: .8 }}>Cor</span>
+              <input
+                type="color"
+                value={form.color}
+                onChange={e => setForm(p => ({ ...p, color: e.target.value }))}
+                style={{ width: 48, height: 28, border: "1px solid #e5e7eb", borderRadius: 8 }}
+              />
             </div>
+
+            <div style={{ textAlign: "right" }}>
+              <button type="submit" style={btnPrimary}>Salvar</button>
+            </div>
+
+            {/* observação */}
+            <small style={{ color: "#6b7280" }}>
+              Criptos: preço via CoinGecko. Ações/Outros: informe preço manual por enquanto.
+            </small>
           </div>
-
-          <p style={{ marginTop: 12, fontSize: 12, opacity: 0.7, textAlign: "center" }}>
-            Cotações via CoinGecko. Se um símbolo não for encontrado, verifique a sigla.
-            Atualiza automaticamente quando a aba está em primeiro plano.
-          </p>
         </form>
       </div>
     </div>
   );
 }
 
-/** ======= styles (inline tokens) ======= */
-const card = {
+/** ================== UI TOKENS ================== */
+const cardBox = {
   background: "var(--card-bg, #fff)",
   border: "1px solid var(--card-bd, #e5e7eb)",
   borderRadius: 14,
   padding: 14,
   boxShadow: "0 1px 2px rgba(0,0,0,.04)",
-};
-
-const grid2 = {
-  display: "grid",
-  gridTemplateColumns: "1.4fr 0.9fr",
-  gap: 16,
 };
 
 const table = {
@@ -460,6 +353,7 @@ const table = {
   fontSize: 14,
 };
 const input = {
+  display: "inline-block",
   width: "100%",
   height: 36,
   padding: "0 10px",
@@ -468,37 +362,34 @@ const input = {
   background: "var(--input-bg, #fff)",
   outline: "none",
 };
-
 const btnBase = {
   height: 34,
-  padding: "0 14px",
+  padding: "0 12px",
   borderRadius: 10,
   border: "1px solid transparent",
   cursor: "pointer",
 };
 const btnPrimary = { ...btnBase, background: "#2563eb", color: "#fff", borderColor: "#1d4ed8" };
-const btnSoft = { ...btnBase, background: "#f3f4f6", color: "#111827", borderColor: "#e5e7eb" };
-const btnDanger = { ...btnBase, background: "#fee2e2", color: "#991b1b", borderColor: "#fecaca" };
+const btnDanger  = { ...btnBase, background: "#fee2e2", color: "#991b1b", borderColor: "#fecaca" };
 
-const pillRow = { display: "flex", gap: 12, flexWrap: "wrap" };
-
-function Pill({ label, value, tone }) {
-  let bg = "#f3f4f6", fg = "#111827";
-  if (tone === "up") { bg = "#dcfce7"; fg = "#166534"; }
-  if (tone === "down") { bg = "#fee2e2"; fg = "#991b1b"; }
+function KPI({ label, value, tone }) {
+  const color = tone === "up" ? "#166534" : tone === "down" ? "#991b1b" : "#111827";
+  const bg = tone === "up" ? "#dcfce7" : tone === "down" ? "#fee2e2" : "#f3f4f6";
   return (
-    <div style={{
-      display: "grid",
-      gap: 2,
-      padding: "8px 10px",
-      border: "1px solid #e5e7eb",
-      borderRadius: 12,
-      minWidth: 140,
-      background: bg,
-      color: fg,
-    }}>
-      <span style={{ fontSize: 12, opacity: 0.7, color: "#6b7280" }}>{label}</span>
-      <b style={{ fontSize: 15, color: fg }}>{value}</b>
+    <div style={{ ...cardBox, padding: 12, display: "grid", gap: 4 }}>
+      <span style={{ fontSize: 12, color: "#6b7280" }}>{label}</span>
+      <b style={{ fontSize: 18, color }}>{value}</b>
+      {tone && <div style={{ background: bg, borderRadius: 10, height: 6 }} />}
     </div>
+  );
+}
+
+function Badge({ tone = "neutral", children }) {
+  const bg = tone === "up" ? "#dcfce7" : tone === "down" ? "#fee2e2" : "#e5e7eb";
+  const color = tone === "up" ? "#166534" : tone === "down" ? "#991b1b" : "#111827";
+  return (
+    <span style={{ padding: "2px 8px", borderRadius: 999, background: bg, color, fontSize: 12 }}>
+      {children}
+    </span>
   );
 }
