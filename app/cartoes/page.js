@@ -179,7 +179,7 @@ export default function CartoesPage() {
       rows.push({
         id: uid(),
         cardId: selectedCard.id,
-        faturaYm: ym, // YY-MM
+        faturaYm: ym, // YYYY-MM
         date: chargeForm.date, // data da compra
         desc: chargeForm.desc.trim(),
         value: parcelaValor,
