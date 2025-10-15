@@ -2,32 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-/**
- * Modelo de dados salvo em localStorage (chave: gf-cartoes)
- * [
- *   {
- *     id: "c1",
- *     nome: "Millennium",
- *     cor: "#2563eb",
- *     limite: 6000,
- *     fechamento: 1,   // dia
- *     vencimento: 5,   // dia
- *     lancamentos: [
- *       {
- *         id: "l1",
- *         data: "2025-10-14",
- *         descricao: "Mercado",
- *         parcelas: 2,              // total de parcelas
- *         parcelaAtual: 1,          // opcional: quantas já foram quitadas
- *         valor: 400,
- *         status: "Pago" | "Pendente"
- *       }
- *     ]
- *   }
- * ]
- */
-
-// ------- Utils -------
+// ---------------- Utils ----------------
 const LS_KEY = "gf-cartoes";
 const currency = (n = 0) =>
   (isFinite(n) ? n : 0).toLocaleString("pt-PT", {
@@ -39,9 +14,7 @@ const currency = (n = 0) =>
 function uid(prefix = "id") {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
-
 function ymdToDisplay(ymd) {
-  // "2025-10-14" -> "14/10/25"
   if (!ymd) return "";
   const [y, m, d] = ymd.split("-").map(Number);
   if (!y || !m || !d) return ymd;
@@ -49,27 +22,43 @@ function ymdToDisplay(ymd) {
     y
   ).slice(-2)}`;
 }
-
-// mostra parcelas como "2-1" (total-restantes) ou "—" se for parcela única
+function addMonths(ymd, k) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(y, (m - 1) + k, d || 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+// mostra “total-restantes”
 function formatParcelas(l) {
   const total = Number(l?.parcelas || 1);
-
-  // Se controlar explicitamente, usa parcelaAtual:
   const atual = Number(l?.parcelaAtual || 0);
-
-  // fallback inteligente: se marcou "Pago" e total>1, assume ao menos 1 pago
   const deduzida = l?.status === "Pago" && total > 1 ? 1 : 0;
-
   const pagas = Math.max(atual, deduzida);
   const restantes = Math.max(0, total - pagas);
-
   return total > 1 ? `${total}-${restantes}` : "—";
 }
+// há parcela deste lançamento no mês/ano selecionado?
+function hasInstallmentInMonth(l, year, month) {
+  const base = new Date(l.data);
+  for (let k = 0; k < Math.max(1, Number(l.parcelas || 1)); k++) {
+    const d = new Date(base.getFullYear(), base.getMonth() + k, base.getDate());
+    if (d.getFullYear() === year && d.getMonth() + 1 === month) return true;
+  }
+  return false;
+}
 
-// ------- Página -------
+// ---------------- Página ----------------
 export default function CartoesPage() {
   const [dados, setDados] = useState([]);
   const [cardIdAtivo, setCardIdAtivo] = useState("");
+
+  // mês selecionado (navegação)
+  const now = new Date();
+  const [selYear, setSelYear] = useState(now.getFullYear());
+  const [selMonth, setSelMonth] = useState(now.getMonth() + 1);
+
   const [novoCard, setNovoCard] = useState({
     nome: "",
     cor: "#2563eb",
@@ -82,10 +71,10 @@ export default function CartoesPage() {
     descricao: "",
     parcelas: 1,
     valor: "",
-    status: "Pendente",
+    // status removido do formulário; sempre começa como “Pendente”
   });
 
-  // Carrega / salva no localStorage
+  // Carregar/Salvar
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
@@ -107,11 +96,9 @@ export default function CartoesPage() {
     [dados, cardIdAtivo]
   );
 
-  // Cálculos de resumo do cartão ativo
+  // Resumo do cartão (geral)
   const resumo = useMemo(() => {
-    if (!cardAtivo) {
-      return { usado: 0, pendente: 0, disponivel: 0 };
-    }
+    if (!cardAtivo) return { usado: 0, pendente: 0, disponivel: 0 };
     const usado = cardAtivo.lancamentos
       .filter((l) => l.status === "Pago")
       .reduce((a, b) => a + Number(b.valor || 0), 0);
@@ -122,7 +109,15 @@ export default function CartoesPage() {
     return { usado, pendente, disponivel };
   }, [cardAtivo]);
 
-  // Ações – Cartão
+  // Lançamentos visíveis no MÊS selecionado
+  const lancamentosDoMes = useMemo(() => {
+    if (!cardAtivo) return [];
+    return cardAtivo.lancamentos.filter((l) =>
+      hasInstallmentInMonth(l, selYear, selMonth)
+    );
+  }, [cardAtivo, selYear, selMonth]);
+
+  // Ações — Cartão
   function salvarNovoCartao(e) {
     e.preventDefault();
     if (!novoCard.nome.trim()) return;
@@ -140,7 +135,6 @@ export default function CartoesPage() {
     setCardIdAtivo(c.id);
     setNovoCard({ nome: "", cor: "#2563eb", limite: 0, fechamento: 1, vencimento: 5 });
   }
-
   function excluirCartao(id) {
     if (!confirm("Excluir este cartão?")) return;
     const arr = dados.filter((c) => c.id !== id);
@@ -149,7 +143,7 @@ export default function CartoesPage() {
     else setCardIdAtivo("");
   }
 
-  // Ações – Lançamentos
+  // Ações — Lançamentos
   function adicionarLancamento(e) {
     e.preventDefault();
     if (!cardAtivo) return;
@@ -160,7 +154,7 @@ export default function CartoesPage() {
       parcelas: Math.max(1, Number(novoLanc.parcelas || 1)),
       parcelaAtual: 0,
       valor: Number(novoLanc.valor || 0),
-      status: novoLanc.status,
+      status: "Pendente",
     };
     const arr = dados.map((c) =>
       c.id === cardAtivo.id
@@ -173,10 +167,8 @@ export default function CartoesPage() {
       descricao: "",
       parcelas: 1,
       valor: "",
-      status: "Pendente",
     });
   }
-
   function marcarPago(idLanc, pago = true) {
     if (!cardAtivo) return;
     const arr = dados.map((c) => {
@@ -197,7 +189,6 @@ export default function CartoesPage() {
     });
     setDados(arr);
   }
-
   function excluirLancamento(idLanc) {
     if (!cardAtivo) return;
     if (!confirm("Excluir lançamento?")) return;
@@ -209,7 +200,25 @@ export default function CartoesPage() {
     setDados(arr);
   }
 
-  // --------- UI ----------
+  // Navegação de mês
+  const nomeMes = new Date(selYear, selMonth - 1, 1).toLocaleString("pt-PT", {
+    month: "long",
+    year: "numeric",
+  });
+  function prevMonth() {
+    let m = selMonth - 1;
+    let y = selYear;
+    if (m < 1) { m = 12; y -= 1; }
+    setSelMonth(m); setSelYear(y);
+  }
+  function nextMonth() {
+    let m = selMonth + 1;
+    let y = selYear;
+    if (m > 12) { m = 1; y += 1; }
+    setSelMonth(m); setSelYear(y);
+  }
+
+  // -------- UI --------
   return (
     <div style={{ overflowX: "auto" }}>
       <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>
@@ -244,28 +253,19 @@ export default function CartoesPage() {
               </select>
             </label>
 
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                alignItems: "center",
-                marginLeft: "auto",
-              }}
-            >
-              {cardAtivo && (
-                <>
-                  <span style={{ fontSize: 13, opacity: 0.7 }}>
-                    Fechamento: {String(cardAtivo.fechamento).padStart(2, "0")}
-                  </span>
-                  <span style={{ fontSize: 13, opacity: 0.7 }}>
-                    Vencimento: {String(cardAtivo.vencimento).padStart(2, "0")}
-                  </span>
-                </>
-              )}
-            </div>
+            {cardAtivo && (
+              <div style={{ display: "flex", gap: 10, marginLeft: "auto" }}>
+                <span style={{ fontSize: 13, opacity: 0.7 }}>
+                  Fechamento: {String(cardAtivo.fechamento).padStart(2, "0")}
+                </span>
+                <span style={{ fontSize: 13, opacity: 0.7 }}>
+                  Vencimento: {String(cardAtivo.vencimento).padStart(2, "0")}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Resumo do cartão ativo */}
+          {/* Resumo */}
           <div
             style={{
               display: "grid",
@@ -292,19 +292,27 @@ export default function CartoesPage() {
             </div>
           </div>
 
-          {/* Tabela de fatura / lançamentos */}
+          {/* Fatura do mês selecionado */}
           <div className="painel">
+            {/* Barra de mês */}
             <div
               style={{
                 display: "flex",
+                alignItems: "center",
                 justifyContent: "space-between",
                 marginBottom: 8,
-                alignItems: "center",
+                gap: 8,
+                flexWrap: "wrap",
               }}
             >
-              <div style={{ fontWeight: 600 }}>Fatura</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button className="btn-sec" onClick={prevMonth}>◀</button>
+                <strong>{nomeMes}</strong>
+                <button className="btn-sec" onClick={nextMonth}>▶</button>
+              </div>
+
               <div style={{ fontSize: 13, opacity: 0.7 }}>
-                mês atual de {new Date().toLocaleString("pt-PT", { month: "long", year: "numeric" })}
+                Mostrando parcelas previstas para este mês
               </div>
             </div>
 
@@ -321,14 +329,14 @@ export default function CartoesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {!cardAtivo || cardAtivo.lancamentos.length === 0 ? (
+                  {!cardAtivo || lancamentosDoMes.length === 0 ? (
                     <tr>
                       <td colSpan={6} style={{ textAlign: "center", padding: 18, opacity: 0.7 }}>
-                        Nenhum lançamento nesta fatura.
+                        Nenhum lançamento neste mês.
                       </td>
                     </tr>
                   ) : (
-                    cardAtivo.lancamentos.map((l) => (
+                    lancamentosDoMes.map((l) => (
                       <tr key={l.id}>
                         <td>{ymdToDisplay(l.data)}</td>
                         <td className="td-descricao">{l.descricao}</td>
@@ -468,7 +476,7 @@ export default function CartoesPage() {
             </form>
           </div>
 
-          {/* Novo lançamento no cartão */}
+          {/* Novo lançamento no cartão (Status REMOVIDO) */}
           <div className="painel">
             <div style={{ fontWeight: 600, marginBottom: 8 }}>
               Novo lançamento no cartão
@@ -522,18 +530,6 @@ export default function CartoesPage() {
                   }
                 />
               </label>
-              <label>
-                Status
-                <select
-                  value={novoLanc.status}
-                  onChange={(e) =>
-                    setNovoLanc({ ...novoLanc, status: e.target.value })
-                  }
-                >
-                  <option value="Pendente">Pendente</option>
-                  <option value="Pago">Pago</option>
-                </select>
-              </label>
 
               <button type="submit" className="btn-primary">
                 Adicionar
@@ -545,7 +541,3 @@ export default function CartoesPage() {
     </div>
   );
 }
-
-/* ---------------- estilos locais (escopados por classe) --------------- */
-/* Se preferir, pode mover para um CSS global. Mantive aqui junto para ficar
-   fechamento 100% do patch. */
