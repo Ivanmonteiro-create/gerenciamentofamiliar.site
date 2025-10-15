@@ -1,166 +1,168 @@
-// app/investimentos/page.js
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-/** =========================
- *  Storage helpers
- * ========================= */
-const ASSETS_KEY = "gf_invest_assets_v2"; // [{id,symbol,name,color,qty,avg}]
-function loadLS(key, fallback) {
+/** ======= LS KEYS ======= */
+const LS_ASSETS = "gf_invest_assets_v1";
+
+/** ======= UTILS ======= */
+const fmt = (n) =>
+  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function uid() {
+  return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-6);
+}
+
+function lsGet(key, fallback) {
   try {
-    const raw = typeof window !== "undefined" ? localStorage.getItem(key) : null;
+    const raw =
+      typeof window !== "undefined" ? localStorage.getItem(key) : null;
     return raw ? JSON.parse(raw) : fallback;
   } catch {
     return fallback;
   }
 }
-function saveLS(key, val) {
+
+function lsSet(key, value) {
   try {
-    localStorage.setItem(key, JSON.stringify(val));
+    localStorage.setItem(key, JSON.stringify(value));
   } catch {}
 }
-function uid() {
-  return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(6);
-}
-const fmt = (n) =>
-  Number(n || 0).toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
 
-/** =========================
- *  Mapa de Símbolo → CoinGecko ID
- *  (se não achar, tenta symbol.toLowerCase())
- * ========================= */
-const CG_ID = {
-  BTC: "bitcoin",
-  ETH: "ethereum",
-  BNB: "binancecoin",
-  SOL: "solana",
-  ADA: "cardano",
-  XRP: "ripple",
-  DOGE: "dogecoin",
-  DOT: "polkadot",
-  MATIC: "matic-network",
-  AVAX: "avalanche-2",
-  TRX: "tron",
-  LINK: "chainlink",
-  LTC: "litecoin",
-  WLD: "worldcoin-wld",
-  PEPE: "pepe",
-  SHIB: "shiba-inu",
-};
+/** ======= COINGECKO HELPERS (sem API key) =======
+ * Estratégia:
+ *  1) /search?query=SYMBOL  -> pega o primeiro match “coins[]”
+ *  2) fallback: /coins/list  -> procura symbol exato (case-insensitive)
+ *  3) com o id => /simple/price?ids=ID&vs_currencies=eur
+ */
+async function resolveIdFromSymbol(symbol) {
+  const sym = String(symbol || "").trim().toLowerCase();
+  if (!sym) return null;
 
-function resolveCgId(symbol) {
-  if (!symbol) return "";
-  const s = symbol.trim().toUpperCase();
-  return CG_ID[s] || s.toLowerCase();
-}
+  // 1) tenta /search
+  try {
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(sym)}`,
+      { cache: "no-store" }
+    );
+    if (r.ok) {
+      const j = await r.json();
+      const hit = (j?.coins || []).find(
+        (c) =>
+          c.symbol?.toLowerCase() === sym ||
+          c.id?.toLowerCase() === sym ||
+          c.name?.toLowerCase() === sym
+      );
+      if (hit?.id) return { id: hit.id, name: hit.name, symbol: hit.symbol };
+    }
+  } catch {}
 
-/** =========================
- *  Preços (CoinGecko)
- *  - Atualiza a cada 60s
- *  - Pausa quando a aba está oculta
- * ========================= */
-async function fetchPricesEUR(ids /* string[] */) {
-  const uniq = Array.from(new Set(ids.filter(Boolean)));
-  if (uniq.length === 0) return {};
-  const url =
-    "https://api.coingecko.com/api/v3/simple/price?vs_currencies=eur&ids=" +
-    encodeURIComponent(uniq.join(","));
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Falha na CoinGecko");
-  const data = await res.json();
-  // Normaliza: { id: { eur: number } }
-  const out = {};
-  uniq.forEach((id) => {
-    const row = data[id];
-    out[id] = row && typeof row.eur === "number" ? row.eur : 0;
-  });
-  return out;
+  // 2) fallback /coins/list (pode ser pesado; usa pequena demora se cair aqui)
+  try {
+    const r = await fetch("https://api.coingecko.com/api/v3/coins/list", {
+      cache: "force-cache",
+    });
+    if (r.ok) {
+      const list = await r.json();
+      const exact =
+        list.find((c) => c.symbol?.toLowerCase() === sym) ||
+        list.find((c) => c.id?.toLowerCase() === sym) ||
+        list.find((c) => c.name?.toLowerCase() === sym);
+      if (exact) return { id: exact.id, name: exact.name, symbol: exact.symbol };
+    }
+  } catch {}
+
+  return null;
 }
 
-/** =========================
- *  Página
- * ========================= */
+async function fetchPriceEUR(coinId) {
+  if (!coinId) return null;
+  try {
+    const r = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+        coinId
+      )}&vs_currencies=eur`,
+      { cache: "no-store" }
+    );
+    if (!r.ok) return null;
+    const j = await r.json();
+    const val = j?.[coinId]?.eur;
+    return typeof val === "number" ? val : null;
+  } catch {
+    return null;
+  }
+}
+
+/** ======= COMPONENT ======= */
 export default function InvestimentosPage() {
+  /** assets: [{ id, symbol, cgId, name, qty, avg, color }] */
   const [assets, setAssets] = useState([]);
-  // cache de preços em EUR por id CoinGecko
+  /** prices: map cgId -> priceEUR */
   const [prices, setPrices] = useState({});
-  const timerRef = useRef(null);
-
-  // formulário
+  /** UI */
   const [form, setForm] = useState({
     symbol: "",
-    name: "",
     qty: "",
     avg: "",
-    color: "#16a34a",
+    color: "#22c55e",
   });
+  const [loading, setLoading] = useState(false);
+  const timerRef = useRef(null);
+  const visibleRef = useRef(true);
 
-  // carregar assets
+  /** load LS */
   useEffect(() => {
-    setAssets(loadLS(ASSETS_KEY, []));
+    setAssets(lsGet(LS_ASSETS, []));
   }, []);
 
-  // atualizar preços periodicamente
+  /** auto refresh preços (a cada 60s quando aba ativa) */
   useEffect(() => {
-    function wantIds() {
-      return assets.map((a) => resolveCgId(a.symbol)).filter(Boolean);
-    }
-    let stopped = false;
-
-    async function update() {
-      try {
-        const ids = wantIds();
-        if (ids.length === 0) return;
-        const p = await fetchPricesEUR(ids);
-        if (!stopped) setPrices((old) => ({ ...old, ...p }));
-      } catch {
-        // silencia erros transitórios
-      }
-    }
-
-    function start() {
-      update(); // dispara já
-      timerRef.current = setInterval(update, 60_000); // 60s
-    }
-    function stop() {
-      if (timerRef.current) clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-
-    // pausa quando a aba fica oculta
-    function onVis() {
-      if (document.hidden) stop();
-      else start();
-    }
-
-    start();
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      stopped = true;
-      stop();
-      document.removeEventListener("visibilitychange", onVis);
+    const handler = () => {
+      visibleRef.current = document.visibilityState === "visible";
     };
-  }, [assets]);
+    document.addEventListener("visibilitychange", handler);
 
-  /** ========= Cálculos por ativo ========= */
-  const rows = useMemo(() => {
+    let stop = false;
+    const loop = async () => {
+      while (!stop) {
+        if (visibleRef.current) {
+          await refreshAllPrices();
+        }
+        await sleep(60000);
+      }
+    };
+    loop();
+
+    return () => {
+      stop = true;
+      document.removeEventListener("visibilitychange", handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets.map((a) => a.cgId).join(",")]);
+
+  /** primeira carga de preços logo que houver assets */
+  useEffect(() => {
+    refreshAllPrices();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets.map((a) => a.cgId).join(",")]);
+
+  /** cálculos */
+  const enriched = useMemo(() => {
     return assets.map((a) => {
-      const id = resolveCgId(a.symbol);
-      const live = prices[id] || 0; // preço ao vivo (EUR) – 0 se indisponível
+      const px = prices[a.cgId] ?? null;
       const qty = Number(a.qty || 0);
       const avg = Number(a.avg || 0);
-      const currentValue = qty * live;
+      const current = px ?? 0;
+      const currentVal = qty * current;
       const cost = qty * avg;
-      const pl = currentValue - cost; // P/L não realizado
+      const pl = currentVal - cost;
       const plPct = cost > 0 ? (pl / cost) * 100 : 0;
       return {
         ...a,
-        cgId: id,
-        live,
-        qty,
-        avg,
-        currentValue,
+        current,
+        currentVal,
         cost,
         pl,
         plPct,
@@ -168,210 +170,277 @@ export default function InvestimentosPage() {
     });
   }, [assets, prices]);
 
-  /** ========= Totais ========= */
-  const totals = useMemo(() => {
-    const cost = rows.reduce((s, r) => s + r.cost, 0);
-    const val = rows.reduce((s, r) => s + r.currentValue, 0);
-    const pl = val - cost;
-    const plPct = cost > 0 ? (pl / cost) * 100 : 0;
-    return { cost, val, pl, plPct };
-  }, [rows]);
+  const totalCost = useMemo(
+    () => enriched.reduce((s, it) => s + it.cost, 0),
+    [enriched]
+  );
+  const totalVal = useMemo(
+    () => enriched.reduce((s, it) => s + it.currentVal, 0),
+    [enriched]
+  );
+  const totalPL = totalVal - totalCost;
+  const totalPLPct = totalCost > 0 ? (totalPL / totalCost) * 100 : 0;
 
-  /** ========= Ações ========= */
-  function addAsset(e) {
+  /** actions */
+  async function addAsset(e) {
     e.preventDefault();
-    const sym = form.symbol.trim().toUpperCase();
-    if (!sym) {
-      alert("Informe o símbolo (ex.: BTC, ETH, DOGE).");
+    const symbol = form.symbol.trim();
+    if (!symbol) {
+      alert("Informe o símbolo (ex.: BTC, ETH, ORAI, WLD…).");
       return;
     }
+
+    setLoading(true);
+    const resolved = await resolveIdFromSymbol(symbol);
+    setLoading(false);
+
+    if (!resolved?.id) {
+      alert(
+        "Não consegui encontrar esse símbolo na CoinGecko. Verifique se está correto."
+      );
+      return;
+    }
+
     const next = [
       ...assets,
       {
         id: uid(),
-        symbol: sym,
-        name: form.name.trim(),
-        color: form.color || "#16a34a",
+        symbol: symbol.toUpperCase(),
+        cgId: resolved.id,
+        name: resolved.name || symbol.toUpperCase(),
         qty: Number(form.qty || 0),
         avg: Number(form.avg || 0),
+        color: form.color || "#22c55e",
+        createdAt: Date.now(),
       },
     ];
     setAssets(next);
-    saveLS(ASSETS_KEY, next);
-    setForm({ symbol: "", name: "", qty: "", avg: "", color: "#16a34a" });
+    lsSet(LS_ASSETS, next);
+    setForm({ symbol: "", qty: "", avg: "", color: "#22c55e" });
   }
 
   function removeAsset(id) {
-    if (!confirm("Excluir este ativo da carteira?")) return;
     const next = assets.filter((a) => a.id !== id);
     setAssets(next);
-    saveLS(ASSETS_KEY, next);
+    lsSet(LS_ASSETS, next);
   }
 
-  /** ========= UI ========= */
+  async function refreshAllPrices() {
+    if (!assets.length) return;
+    // busca em lotes pequenos para evitar rate limit
+    const ids = [...new Set(assets.map((a) => a.cgId).filter(Boolean))];
+    const newMap = { ...prices };
+    for (const id of ids) {
+      const val = await fetchPriceEUR(id);
+      if (typeof val === "number") newMap[id] = val;
+      // pequena pausa para ser “amigável” com a API
+      await sleep(250);
+    }
+    setPrices(newMap);
+  }
+
+  function exportCSV() {
+    const rows = enriched.map((a) => ({
+      Ativo: a.symbol,
+      Nome: a.name,
+      Quantidade: a.qty,
+      "Preço médio": a.avg,
+      "Preço atual (EUR)": a.current,
+      "Valor atual (EUR)": a.currentVal,
+      "Custo (EUR)": a.cost,
+      "P/L (EUR)": a.pl,
+      "P/L (%)": `${a.plPct.toFixed(2)}%`,
+    }));
+    const header = Object.keys(rows[0] || {});
+    const lines = [
+      header.join(";"),
+      ...rows.map((r) =>
+        header.map((h) => String(r[h]).replaceAll(";", ",")).join(";")
+      ),
+    ].join("\n");
+
+    const blob = new Blob([lines], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "carteira.csv";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /** UI */
   return (
     <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 16 }}>Investimentos</h1>
+      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12 }}>
+        Investimentos
+      </h1>
 
-      {/* Cards de totais */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 16 }}>
-        <KPI title="Valor total" value={fmt(totals.val)} />
-        <KPI title="Custo total" value={fmt(totals.cost)} />
-        <KPI
-          title="P/L não realizado"
-          value={`${fmt(totals.pl)} (${totals.plPct.toFixed(2)}%)`}
-          intent={totals.pl >= 0 ? "up" : "down"}
-        />
-      </div>
+      {/* resumo */}
+      <div style={grid2}>
+        <div className="card" style={card}>
+          <div style={pillRow}>
+            <Pill label="Valor total" value={fmt(totalVal)} />
+            <Pill label="Custo total" value={fmt(totalCost)} />
+            <Pill
+              label="P/L não realizado"
+              value={`${fmt(totalPL)} (${totalPLPct.toFixed(2)}%)`}
+              tone={totalPL >= 0 ? "up" : "down"}
+            />
+          </div>
 
-      {/* Tabela */}
-      <div className="card" style={cardBox}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-          <strong>Carteira</strong>
-          <small style={{ opacity: 0.7 }}>
-            Cotações via CoinGecko (auto a cada 60s). Se um ativo ficar com preço 0, verifique o símbolo.
-          </small>
-        </div>
-
-        <div style={{ overflowX: "auto" }}>
-          <table style={table}>
-            <thead>
-              <tr>
-                <th>Ativo</th>
-                <th>Qtd</th>
-                <th>Preço médio</th>
-                <th>Preço atual</th>
-                <th>Valor atual</th>
-                <th>P/L</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
+          {/* tabela carteira */}
+          <div style={{ marginTop: 14, overflowX: "auto" }}>
+            <table style={table}>
+              <thead>
                 <tr>
-                  <td colSpan={7} style={{ textAlign: "center", padding: 16, opacity: 0.6 }}>
-                    Adicione um ativo abaixo.
-                  </td>
+                  <th style={{ minWidth: 90 }}>Ativo</th>
+                  <th>Qtd</th>
+                  <th>Preço méd.</th>
+                  <th>Preço atual</th>
+                  <th>Valor atual</th>
+                  <th>P/L</th>
+                  <th style={{ width: 90 }}>Ações</th>
                 </tr>
-              ) : (
-                rows.map((r) => (
-                  <tr key={r.id}>
-                    <td>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span
-                          title={r.symbol}
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: 999,
-                            background: r.color || "#16a34a",
-                            boxShadow: "0 0 0 1px rgba(0,0,0,.08)",
-                          }}
-                        />
-                        <div style={{ display: "grid", lineHeight: 1.2 }}>
-                          <b>{r.symbol}</b>
-                          <small style={{ opacity: 0.7 }}>{r.name || r.cgId}</small>
-                        </div>
-                      </div>
-                    </td>
-                    <td>{r.qty}</td>
-                    <td>{fmt(r.avg)}</td>
-                    <td>{r.live ? fmt(r.live) : "—"}</td>
-                    <td>{fmt(r.currentValue)}</td>
-                    <td>
-                      <span
-                        style={{
-                          padding: "2px 8px",
-                          borderRadius: 999,
-                          background: r.pl >= 0 ? "#dcfce7" : "#fee2e2",
-                          color: r.pl >= 0 ? "#166534" : "#991b1b",
-                          whiteSpace: "nowrap",
-                          fontVariantNumeric: "tabular-nums",
-                        }}
-                      >
-                        {fmt(r.pl)} ({r.plPct.toFixed(2)}%)
-                      </span>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <button style={btnDanger} onClick={() => removeAsset(r.id)}>
-                        Excluir
-                      </button>
+              </thead>
+              <tbody>
+                {enriched.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: "center", padding: 18, opacity: .7 }}>
+                      Adicione seus criptoativos ao lado para ver a carteira.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                ) : (
+                  enriched.map((a) => (
+                    <tr key={a.id}>
+                      <td>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span
+                            aria-hidden
+                            style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: 999,
+                              background: a.color || "#22c55e",
+                              outline: "1px solid rgba(0,0,0,.06)",
+                            }}
+                          />
+                          <div style={{ lineHeight: 1.2 }}>
+                            <div style={{ fontWeight: 600 }}>{a.symbol}</div>
+                            <small style={{ opacity: .7 }}>{a.name}</small>
+                          </div>
+                        </div>
+                      </td>
+                      <td>{a.qty}</td>
+                      <td>{fmt(a.avg)}</td>
+                      <td>{a.current ? fmt(a.current) : "—"}</td>
+                      <td>{fmt(a.currentVal)}</td>
+                      <td>
+                        <span
+                          style={{
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            background: a.pl >= 0 ? "#dcfce7" : "#fee2e2",
+                            color: a.pl >= 0 ? "#166534" : "#991b1b",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {fmt(a.pl)} ({a.plPct.toFixed(2)}%)
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", justifyContent: "center" }}>
+                          <button style={btnDanger} onClick={() => removeAsset(a.id)}>
+                            Excluir
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      {/* Form de novo ativo */}
-      <form onSubmit={addAsset} className="card" style={{ ...cardBox, marginTop: 14 }}>
-        <div style={{ fontWeight: 700, marginBottom: 6 }}>Adicionar ativo</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8 }}>
-          <div style={{ gridColumn: "span 1" }}>
-            <label style={lb}>Símbolo</label>
-            <input
-              style={input}
-              placeholder="ex.: BTC"
-              value={form.symbol}
-              onChange={(e) => setForm((p) => ({ ...p, symbol: e.target.value }))}
-              required
-            />
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 10 }}>
+            <button style={btnSoft} onClick={exportCSV}>
+              Exportar CSV (filtro)
+            </button>
           </div>
-          <div style={{ gridColumn: "span 2" }}>
-            <label style={lb}>Nome (opcional)</label>
-            <input
-              style={input}
-              placeholder="ex.: Bitcoin"
-              value={form.name}
-              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-            />
-          </div>
-          <div style={{ gridColumn: "span 1" }}>
-            <label style={lb}>Quantidade</label>
-            <input
-              style={input}
-              inputMode="decimal"
-              value={form.qty}
-              onChange={(e) => setForm((p) => ({ ...p, qty: e.target.value }))}
-              required
-            />
-          </div>
-          <div style={{ gridColumn: "span 1" }}>
-            <label style={lb}>Preço médio (€)</label>
-            <input
-              style={input}
-              inputMode="decimal"
-              value={form.avg}
-              onChange={(e) => setForm((p) => ({ ...p, avg: e.target.value }))}
-              required
-            />
-          </div>
-          <div style={{ gridColumn: "span 1" }}>
-            <label style={lb}>Cor</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="color"
-                value={form.color}
-                onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
-                style={{ width: 46, height: 36, border: "1px solid #e5e7eb", borderRadius: 8 }}
-              />
-              <button type="submit" style={btnPrimary}>
-                Salvar
+        </div>
+
+        {/* formulário */}
+        <form onSubmit={addAsset} className="card" style={card}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Adicionar ativo</div>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <label className="lbl">Símbolo (ex.: BTC, ETH, ORAI, WLD)</label>
+                <input
+                  value={form.symbol}
+                  onChange={(e) => setForm((p) => ({ ...p, symbol: e.target.value }))}
+                  placeholder="Símbolo"
+                  style={input}
+                  required
+                />
+              </div>
+              <div>
+                <label className="lbl">Quantidade</label>
+                <input
+                  value={form.qty}
+                  onChange={(e) => setForm((p) => ({ ...p, qty: e.target.value }))}
+                  placeholder="Quantidade"
+                  inputMode="decimal"
+                  style={input}
+                  required
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div>
+                <label className="lbl">Preço médio (EUR)</label>
+                <input
+                  value={form.avg}
+                  onChange={(e) => setForm((p) => ({ ...p, avg: e.target.value }))}
+                  placeholder="Preço médio em EUR"
+                  inputMode="decimal"
+                  style={input}
+                  required
+                />
+              </div>
+
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
+                <div style={{ display: "grid" }}>
+                  <label className="lbl">Cor</label>
+                  <input
+                    type="color"
+                    value={form.color}
+                    onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
+                    style={{ height: 36, width: 60, padding: 0, border: "1px solid #e5e7eb", borderRadius: 8 }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 4 }}>
+              <button type="submit" style={btnPrimary} disabled={loading}>
+                {loading ? "Adicionando…" : "Salvar"}
               </button>
             </div>
           </div>
-        </div>
-      </form>
+
+          <p style={{ marginTop: 12, fontSize: 12, opacity: 0.7, textAlign: "center" }}>
+            Cotações via CoinGecko. Se um símbolo não for encontrado, verifique a sigla.
+            Atualiza automaticamente quando a aba está em primeiro plano.
+          </p>
+        </form>
+      </div>
     </div>
   );
 }
 
-/** =========================
- *  UI tokens
- * ========================= */
-const cardBox = {
+/** ======= styles (inline tokens) ======= */
+const card = {
   background: "var(--card-bg, #fff)",
   border: "1px solid var(--card-bd, #e5e7eb)",
   borderRadius: 14,
@@ -379,12 +448,17 @@ const cardBox = {
   boxShadow: "0 1px 2px rgba(0,0,0,.04)",
 };
 
+const grid2 = {
+  display: "grid",
+  gridTemplateColumns: "1.4fr 0.9fr",
+  gap: 16,
+};
+
 const table = {
   width: "100%",
   borderCollapse: "collapse",
   fontSize: 14,
 };
-const lb = { fontSize: 12, opacity: 0.7, display: "block", marginBottom: 4 };
 const input = {
   width: "100%",
   height: 36,
@@ -394,65 +468,37 @@ const input = {
   background: "var(--input-bg, #fff)",
   outline: "none",
 };
+
 const btnBase = {
   height: 34,
-  padding: "0 12px",
+  padding: "0 14px",
   borderRadius: 10,
   border: "1px solid transparent",
   cursor: "pointer",
 };
-const btnPrimary = {
-  ...btnBase,
-  background: "#2563eb",
-  color: "#fff",
-  borderColor: "#1d4ed8",
-};
-const btnDanger = {
-  ...btnBase,
-  background: "#fee2e2",
-  color: "#991b1b",
-  borderColor: "#fecaca",
-};
+const btnPrimary = { ...btnBase, background: "#2563eb", color: "#fff", borderColor: "#1d4ed8" };
+const btnSoft = { ...btnBase, background: "#f3f4f6", color: "#111827", borderColor: "#e5e7eb" };
+const btnDanger = { ...btnBase, background: "#fee2e2", color: "#991b1b", borderColor: "#fecaca" };
 
-function KPI({ title, value, intent }) {
-  const bg = intent === "up" ? "#dcfce7" : intent === "down" ? "#fee2e2" : "#f3f4f6";
-  const fg = intent === "up" ? "#166534" : intent === "down" ? "#991b1b" : "#111827";
+const pillRow = { display: "flex", gap: 12, flexWrap: "wrap" };
+
+function Pill({ label, value, tone }) {
+  let bg = "#f3f4f6", fg = "#111827";
+  if (tone === "up") { bg = "#dcfce7"; fg = "#166534"; }
+  if (tone === "down") { bg = "#fee2e2"; fg = "#991b1b"; }
   return (
-    <div
-      className="card"
-      style={{
-        ...cardBox,
-        background: "var(--card-bg, #fff)",
-        display: "grid",
-        gap: 4,
-        alignItems: "center",
-      }}
-    >
-      <span style={{ fontSize: 12, opacity: 0.7 }}>{title}</span>
-      <span
-        style={{
-          padding: "6px 10px",
-          borderRadius: 10,
-          background: bg,
-          color: fg,
-          fontWeight: 700,
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {value}
-      </span>
+    <div style={{
+      display: "grid",
+      gap: 2,
+      padding: "8px 10px",
+      border: "1px solid #e5e7eb",
+      borderRadius: 12,
+      minWidth: 140,
+      background: bg,
+      color: fg,
+    }}>
+      <span style={{ fontSize: 12, opacity: 0.7, color: "#6b7280" }}>{label}</span>
+      <b style={{ fontSize: 15, color: fg }}>{value}</b>
     </div>
   );
-}
-
-/* Estilos de tabela (opcional, mantém seu visual atual) */
-const style = `
-table th, table td { padding: 10px; border-bottom: 1px solid #e5e7eb; text-align: left; }
-table th { font-weight: 600; font-size: 12px; color: #6b7280; }
-`;
-if (typeof document !== "undefined" && !document.getElementById("inv-inline-style")) {
-  const el = document.createElement("style");
-  el.id = "inv-inline-style";
-  el.textContent = style;
-  document.head.appendChild(el);
 }
