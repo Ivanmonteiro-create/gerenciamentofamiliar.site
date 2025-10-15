@@ -37,19 +37,22 @@ function addMonthsYM(ym, add) {
   const dt = new Date(y, m - 1 + add, 1);
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
 }
+function ymLabel(ym) {
+  const d = new Date(ym + "-01T00:00:00");
+  return d.toLocaleString("pt-PT", { month: "long", year: "numeric" });
+}
 function formatCurrency(n) {
   const v = Number(n || 0);
   return v.toLocaleString("pt-PT", { style: "currency", currency: "EUR" });
 }
 
-/** ====== CSV ====== */
+/** ====== CSV ====== (sem categoria) */
 function toCSV(rows) {
-  const header = ["Data", "Descrição", "Categoria", "Parcela", "Valor", "Status"];
+  const header = ["Data", "Descrição", "Parcela", "Valor", "Status"];
   const lines = rows.map(r => [
     r.date || "",
     (r.desc || "").replaceAll(";", ","),
-    r.category || "",
-    r.installments > 1 ? `${r.parcelIndex}/${r.installments}` : "",
+    r.installments > 1 ? `${r.installments}-${Math.max(0, r.installments - r.parcelIndex)}` : "",
     String(r.value).replace(".", ","),
     r.status === "pago" ? "Pago" : "Pendente",
   ]);
@@ -80,7 +83,6 @@ export default function CartoesPage() {
   const [chargeForm, setChargeForm] = useState({
     date: todayISO(),
     desc: "",
-    category: "",
     value: "",
     installments: 1, // parcelas
     firstYm: "",     // primeira fatura (YYYY-MM)
@@ -92,7 +94,7 @@ export default function CartoesPage() {
     setCharges(loadLS(CARD_CHARGES_KEY, []));
   }, []);
 
-  /** quando muda a data do lançamento, sugere a primeira fatura como o mês da data */
+  /** quando muda a data do lançamento, sugere a 1ª fatura como o mês da data */
   useEffect(() => {
     if (!chargeForm.firstYm) {
       const d = new Date(chargeForm.date || todayISO());
@@ -125,7 +127,7 @@ export default function CartoesPage() {
   /** uso do limite (considera parcelas PENDENTES de qualquer mês FUTURO+ATUAL) */
   const limitUsed = useMemo(() => {
     if (!selectedCard) return 0;
-    const nowYm = faturaYm; // referência do seletor
+    const nowYm = faturaYm;
     return charges
       .filter(c => c.cardId === selectedCard.id && c.status !== "pago" && c.faturaYm >= nowYm)
       .reduce((s, it) => s + Number(it.value || 0), 0);
@@ -142,7 +144,7 @@ export default function CartoesPage() {
       dueDay: Number(cardForm.dueDay || 5),
       color: cardForm.color || "#4f46e5",
       createdAt: Date.now(),
-    };
+  };
     const next = [...cards, newCard];
     setCards(next);
     saveLS(CARDS_KEY, next);
@@ -178,9 +180,8 @@ export default function CartoesPage() {
         id: uid(),
         cardId: selectedCard.id,
         faturaYm: ym, // YYYY-MM
-        date: chargeForm.date, // data de compra
+        date: chargeForm.date, // data da compra
         desc: chargeForm.desc.trim(),
-        category: chargeForm.category.trim(),
         value: parcelaValor,
         installments: n,
         parcelIndex: i + 1,
@@ -191,11 +192,9 @@ export default function CartoesPage() {
     const next = [...charges, ...rows];
     setCharges(next);
     saveLS(CARD_CHARGES_KEY, next);
-    // limpa form (mantém firstYm seguindo a data)
     setChargeForm({
       date: todayISO(),
       desc: "",
-      category: "",
       value: "",
       installments: 1,
       firstYm: "",
@@ -236,22 +235,24 @@ export default function CartoesPage() {
     if (!confirm(`Registrar pagamento de ${formatCurrency(invoiceTotal)} em Despesas?`)) return;
 
     const txs = loadLS(TX_STORAGE_KEY, []);
-    const now = new Date();
-    const dataISO = `${faturaYm}-05`; // usa dia 05 por padrão (ou próximo do vencimento)
+    const dataISO = `${faturaYm}-05`; // usa dia 05 por padrão
     const tx = {
       id: uid(),
-      data: dataISO, // YYYY-MM-DD
+      data: dataISO,
       descricao: `Pagamento fatura – ${selectedCard.name} (${faturaYm})`,
       categoria: "Cartão de Crédito",
       tipo: "saida",
       valor: invoiceTotal,
       status: "pago",
-      createdAt: now.toISOString(),
+      createdAt: new Date().toISOString(),
     };
     const next = [...txs, tx];
     saveLS(TX_STORAGE_KEY, next);
     alert("Pagamento registrado em Despesas & Receitas ✓");
   }
+
+  const prevMonth = () => setFaturaYm(addMonthsYM(faturaYm, -1));
+  const nextMonth = () => setFaturaYm(addMonthsYM(faturaYm, 1));
 
   /** ====== UI ====== */
   return (
@@ -260,7 +261,7 @@ export default function CartoesPage() {
 
       {/* topo: seleção do cartão + info limite */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-        <div className="card" style={cardBox}>
+        <div className="card" style={{ ...cardBox, borderColor: selectedCard ? selectedCard.color : cardBox.borderColor }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <label style={{ fontWeight: 600 }}>Cartão</label>
             <select
@@ -276,6 +277,22 @@ export default function CartoesPage() {
                 </option>
               ))}
             </select>
+
+            {/* bolinha de cor do cartão selecionado */}
+            {selectedCard && (
+              <span
+                title={`Cor do cartão ${selectedCard.name}`}
+                style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: 999,
+                  background: selectedCard.color,
+                  display: "inline-block",
+                  border: "1px solid #e5e7eb",
+                }}
+              />
+            )}
+
             {selectedCard && (
               <button onClick={() => deleteCard(selectedCard.id)} style={btnDanger}>
                 Excluir cartão
@@ -352,16 +369,19 @@ export default function CartoesPage() {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "1.1fr 1fr", gap: 16 }}>
             {/* fatura atual */}
-            <div className="card" style={cardBox}>
+            <div className="card" style={{ ...cardBox, borderColor: selectedCard.color }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <div style={{ fontWeight: 700 }}>Fatura</div>
-                <input
-                  type="month"
-                  value={faturaYm}
-                  onChange={e => setFaturaYm(e.target.value)}
-                  style={input}
-                  aria-label="Mês da fatura"
-                />
+
+                {/* navegação por mês (◀ mês ▶) */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <button onClick={prevMonth} style={btnSoft} aria-label="Mês anterior">◀</button>
+                  <strong style={{ minWidth: 180, textAlign: "center", textTransform: "capitalize" }}>
+                    {ymLabel(faturaYm)}
+                  </strong>
+                  <button onClick={nextMonth} style={btnSoft} aria-label="Próximo mês">▶</button>
+                </div>
+
                 <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                   <button onClick={exportCSV} style={btnSoft}>Exportar CSV</button>
                   <button onClick={registrarPagamentoDespesas} style={btnSuccess}>
@@ -389,7 +409,7 @@ export default function CartoesPage() {
                   <tbody>
                     {currentInvoiceItems.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={{ padding: 16, textAlign: "center", opacity: 0.6 }}>
+                        <td colSpan={6} style={{ padding: 16, textAlign: "center", opacity: 0.6 }}>
                           Nenhum lançamento nesta fatura.
                         </td>
                       </tr>
@@ -397,8 +417,7 @@ export default function CartoesPage() {
                       <tr key={it.id}>
                         <td>{it.date}</td>
                         <td>{it.desc}</td>
-                        <td>{it.category}</td>
-                        <td>{it.installments > 1 ? `${it.parcelIndex}/${it.installments}` : "-"}</td>
+                        <td>{it.installments > 1 ? `${it.installments}-${Math.max(0, it.installments - it.parcelIndex)}` : "—"}</td>
                         <td>{formatCurrency(it.value)}</td>
                         <td>
                           <span style={{
@@ -426,7 +445,7 @@ export default function CartoesPage() {
               </div>
             </div>
 
-            {/* novo lançamento no cartão */}
+            {/* novo lançamento no cartão (sem categoria) */}
             <form onSubmit={addCharge} className="card" style={cardBox}>
               <div style={{ fontWeight: 700, marginBottom: 6 }}>Novo lançamento no cartão</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -443,12 +462,6 @@ export default function CartoesPage() {
                   onChange={e => setChargeForm(p => ({ ...p, desc: e.target.value }))}
                   style={input}
                   required
-                />
-                <input
-                  placeholder="Categoria"
-                  value={chargeForm.category}
-                  onChange={e => setChargeForm(p => ({ ...p, category: e.target.value }))}
-                  style={input}
                 />
                 <input
                   placeholder="Valor"
