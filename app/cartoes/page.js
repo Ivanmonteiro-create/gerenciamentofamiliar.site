@@ -380,7 +380,6 @@ export default function CartoesPage() {
                     <tr>
                       <th>Data</th>
                       <th>Descrição</th>
-                      <th>Categoria</th>
                       <th>Parcela</th>
                       <th>Valor</th>
                       <th>Status</th>
