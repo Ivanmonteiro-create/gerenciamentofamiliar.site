@@ -1,71 +1,94 @@
 // app/api/prices/route.js
-// Proxy de preços para o frontend.
-// - Cripto: CoinGecko (com fallback de search -> id)
-// - Ações/Outros: manual (não consulta aqui)
+import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
-async function fetchJson(url) {
-  const res = await fetch(url, { headers: { "accept": "application/json" } });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.json();
-}
-
-async function resolveCoinGeckoIds(symbols) {
-  // Retorna {SYM: { id, name }} tentando mapear por /search
-  const out = {};
-  for (const sym of symbols) {
-    const q = encodeURIComponent(sym);
-    const data = await fetchJson(`https://api.coingecko.com/api/v3/search?query=${q}`);
-    // prioriza símbolo exato em crypto-currencies
-    const match =
-      (data.coins || []).find(c => (c.symbol || "").toLowerCase() === sym.toLowerCase()) ||
-      (data.coins || [])[0];
-    if (match?.id) out[sym] = { id: match.id, name: match.name };
-  }
-  return out;
-}
-
-async function fetchCoinGeckoPrices(ids) {
-  // Retorna { id: { eur: number } }
-  if (ids.length === 0) return {};
-  const p = encodeURIComponent(ids.join(","));
-  const json = await fetchJson(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${p}&vs_currencies=eur`
-  );
-  return json || {};
-}
+/**
+ * POST /api/prices
+ *
+ * Usos:
+ *  - Buscar preços de crypto (EUR):
+ *      { type: "crypto", ids?: string[], symbols?: string[], knownMap?: {SYM: coingecko_id} }
+ *    -> retorna { ok:true, data: { byId: {id:{eur}}, bySymbol:{SYM:{eur}} }, resolved:{SYM:{id,name}} , ts }
+ *
+ *  - Buscar sugestões de moedas (busca por nome/símbolo):
+ *      { type: "search", query: "orai" }
+ *    -> { ok:true, results: [ {id, symbol, name} ... ] }
+ */
 
 export async function POST(req) {
   try {
     const body = await req.json();
-    // body: { type: 'crypto', symbols: ['BTC','WLD', ...], knownMap?: {SYM: cgId}}
-    const { type, symbols = [], knownMap = {} } = body || {};
 
-    if (type !== "crypto") {
-      return new Response(JSON.stringify({ ok: true, data: {} }), { status: 200 });
+    // ---- Busca por sugestões (auto-complete) ----
+    if (body?.type === "search") {
+      const q = String(body?.query || "").trim();
+      if (!q) return NextResponse.json({ ok: true, results: [] });
+      const res = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(q)}`, {
+        headers: { accept: "application/json" },
+        next: { revalidate: 60 },
+      });
+      const js = await res.json();
+      const results = (js?.coins || []).slice(0, 10).map(c => ({
+        id: c.id,
+        symbol: (c.symbol || "").toUpperCase(),
+        name: c.name || "",
+      }));
+      return NextResponse.json({ ok: true, results });
     }
 
-    // 1) Descobrir ids que faltam
-    const missing = symbols.filter(s => !knownMap[s]);
-    const resolved = await resolveCoinGeckoIds(missing);
-    const finalMap = { ...knownMap };
-    for (const s of Object.keys(resolved)) finalMap[s] = resolved[s].id;
+    // ---- Preços de crypto ----
+    if (body?.type === "crypto") {
+      const idsFromBody = Array.isArray(body?.ids) ? body.ids.filter(Boolean) : [];
+      const symbols = Array.isArray(body?.symbols) ? body.symbols.filter(Boolean) : [];
+      const knownMap = body?.knownMap || {}; // {SYM: id}
 
-    // 2) Buscar preços por id
-    const ids = Object.values(finalMap);
-    const pricesById = await fetchCoinGeckoPrices(ids);
+      // 1) Resolver símbolos -> ids (usa mapa conhecido + /search para os faltantes)
+      const needResolve = symbols
+        .map(s => s.toUpperCase())
+        .filter(sym => !knownMap[sym]);
 
-    // 3) Re-mapear para símbolo
-    const data = {};
-    for (const sym of symbols) {
-      const cgId = finalMap[sym];
-      const eur = cgId ? pricesById[cgId]?.eur : undefined;
-      data[sym] = { id: cgId, eur: typeof eur === "number" ? eur : null };
+      const resolved = { ...Object.fromEntries(Object.entries(knownMap).map(([k,v]) => [k.toUpperCase(), { id: v }])) };
+
+      // resolve faltantes via /search
+      for (const sym of needResolve) {
+        try {
+          const r = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(sym)}`, {
+            headers: { accept: "application/json" },
+            next: { revalidate: 300 },
+          });
+          const js = await r.json();
+          // regra: preferência por coincidência exata de símbolo; senão, o primeiro
+          const coins = js?.coins || [];
+          let pick = coins.find(c => (c.symbol || "").toUpperCase() === sym) || coins[0];
+          if (pick?.id) {
+            resolved[sym] = { id: pick.id, name: pick.name || "" };
+          }
+        } catch {}
+      }
+
+      // 2) Preparar lista final de ids
+      const ids = new Set(idsFromBody);
+      Object.values(resolved).forEach(o => o?.id && ids.add(o.id));
+      if (ids.size === 0) return NextResponse.json({ ok: true, data: { byId: {}, bySymbol: {} }, resolved, ts: Date.now() });
+
+      const idsCsv = Array.from(ids).join(",");
+      const url = `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(idsCsv)}&vs_currencies=eur`;
+
+      // 3) Buscar preços
+      const pr = await fetch(url, { headers: { accept: "application/json" }, next: { revalidate: 30 } });
+      const pj = await pr.json();
+
+      const byId = pj || {};
+      const bySymbol = {};
+      for (const [sym, obj] of Object.entries(resolved)) {
+        const id = obj?.id;
+        if (id && byId[id]) bySymbol[sym] = byId[id];
+      }
+
+      return NextResponse.json({ ok: true, data: { byId, bySymbol }, resolved, ts: Date.now() });
     }
 
-    return new Response(JSON.stringify({ ok: true, data, resolved }), { status: 200 });
-  } catch (err) {
-    return new Response(JSON.stringify({ ok: false, error: String(err) }), { status: 500 });
+    return NextResponse.json({ ok: false, error: "Tipo inválido" }, { status: 400 });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
   }
 }
